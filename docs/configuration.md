@@ -44,6 +44,21 @@ nodes:
         path: /proxy
         host: example.com
 
+  - id: vmess-1
+    name: Example VMess
+    protocol: vmess
+    server: vmess.example.com
+    port: 443
+    options:
+      uuid: 00000000-0000-0000-0000-000000000000
+      alter_id: 0
+      security: none
+      tls: true
+      transport: websocket
+      websocket:
+        path: /vmess
+        host: vmess.example.com
+
 proxy:
   http_listen: 127.0.0.1:7890
   socks_listen: 127.0.0.1:7891
@@ -122,7 +137,7 @@ profile:
 
 - `id`：节点唯一标识。建议在配置内唯一。
 - `name`：节点显示名称。
-- `protocol`：节点协议。阶段一支持 `http`、`socks`、`vless`。
+- `protocol`：节点协议。阶段一支持 `http`、`socks`、`vless`、`vmess`。
 - `server`：远端服务器地址。必填。
 - `port`：远端服务器端口。必填。
 - `options`：协议相关参数。
@@ -213,6 +228,69 @@ nodes:
 
 - 当 `protocol` 为 `vless` 时，`options.uuid` 必填。
 - 当 `transport` 为 `websocket` 时，`options.websocket` 必填。
+
+当前实现范围：
+
+- 支持 VLESS TCP 出站。
+- 支持 VLESS over TLS。
+- 支持 VLESS over WebSocket。
+- 支持 VLESS over WebSocket + TLS。
+- 支持 TCP CONNECT 流量。
+
+暂不支持：
+
+- UDP。
+- Reality。
+- XTLS Vision。
+- Mux。
+- VLESS flow 参数。
+
+### 4.4 VMess 节点
+
+```yaml
+nodes:
+  - id: vmess-1
+    name: Example VMess
+    protocol: vmess
+    server: vmess.example.com
+    port: 443
+    options:
+      uuid: 00000000-0000-0000-0000-000000000000
+      alter_id: 0
+      security: none
+      tls: true
+      transport: websocket
+      websocket:
+        path: /vmess
+        host: vmess.example.com
+```
+
+字段说明：
+
+- `protocol` 固定为 `vmess`。
+- `uuid`：VMess 用户 UUID。必填。
+- `alter_id`：阶段一仅支持 `0`。
+- `security`：阶段一仅支持 `none`。
+- `tls`：是否启用 TLS。
+- `transport`：支持 `tcp` 和 `websocket`。
+- `websocket.path`：WebSocket 请求路径。
+- `websocket.host`：WebSocket Host。可选。
+
+当前实现范围：
+
+- 支持 VMess legacy TCP 出站。
+- 支持 VMess over TLS。
+- 支持 VMess over WebSocket。
+- 支持 VMess over WebSocket + TLS。
+- 支持 TCP CONNECT 流量。
+
+暂不支持：
+
+- VMess AEAD。
+- AES-GCM / ChaCha20-Poly1305 body security。
+- UDP。
+- Mux。
+- `alter_id` 大于 `0`。
 
 ## 5. proxy
 
@@ -447,8 +525,8 @@ rules:
 - `profile.id` 不允许为空。
 - `nodes` 至少需要一个节点。
 - 每个节点的 `server` 不允许为空。
-- VLESS 节点必须配置 `options.uuid`。
-- VLESS WebSocket 节点必须配置 `options.websocket`。
+- VLESS 和 VMess 节点必须配置 `options.uuid`。
+- VLESS 和 VMess WebSocket 节点必须配置 `options.websocket`。
 
 建议额外遵守：
 

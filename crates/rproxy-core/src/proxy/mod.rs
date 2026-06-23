@@ -285,7 +285,7 @@ async fn connect_for_decision(
     action: &RouteAction,
     active_node: &Option<NodeConfig>,
     target: &TargetAddr,
-) -> Result<tokio::net::TcpStream, outbound::OutboundError> {
+) -> Result<outbound::BoxedProxyStream, outbound::OutboundError> {
     match action {
         RouteAction::Direct => connect_direct(target).await,
         RouteAction::Proxy => {

@@ -53,6 +53,7 @@ pub enum Protocol {
     Http,
     Socks,
     Vless,
+    Vmess,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -60,6 +61,9 @@ pub struct NodeOptions {
     pub username: Option<String>,
     pub password: Option<String>,
     pub uuid: Option<String>,
+    pub alter_id: Option<u16>,
+    pub security: Option<String>,
+    pub request_host: Option<String>,
     #[serde(default)]
     pub tls: bool,
     pub transport: Option<Transport>,
@@ -244,7 +248,7 @@ impl Config {
                 )));
             }
 
-            if node.protocol == Protocol::Vless {
+            if matches!(node.protocol, Protocol::Vless | Protocol::Vmess) {
                 if node
                     .options
                     .uuid
@@ -254,17 +258,19 @@ impl Config {
                     .is_empty()
                 {
                     return Err(ConfigError::Validation(format!(
-                        "vless node {} requires uuid",
-                        node.id
+                        "{:?} node {} requires uuid",
+                        node.protocol, node.id
                     )));
                 }
+            }
 
+            if matches!(node.protocol, Protocol::Vless | Protocol::Vmess) {
                 if node.options.transport == Some(Transport::WebSocket)
                     && node.options.websocket.is_none()
                 {
                     return Err(ConfigError::Validation(format!(
-                        "vless websocket node {} requires websocket options",
-                        node.id
+                        "{:?} websocket node {} requires websocket options",
+                        node.protocol, node.id
                     )));
                 }
             }

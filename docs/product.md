@@ -77,13 +77,13 @@ RProxy 支持多种代理协议，并预留协议扩展能力。
 
 - HTTP。
 - SOCKS。
-- VLESS，首批支持 TLS 与 WebSocket 传输。
+- VLESS，首批支持 TCP、TLS 与 WebSocket 传输。
+- VMess，首批支持 legacy TCP/TLS/WebSocket，`security: none`。
 
 后续可扩展：
 
 - Shadowsocks。
 - Trojan。
-- VMess。
 - WireGuard。
 - Hysteria。
 

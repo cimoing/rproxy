@@ -13,18 +13,32 @@ rust-version = "1.80"
 
 [workspace.dependencies]
 anyhow = "1"
+aes = "0.8"
+aes-gcm = "0.10"
 base64 = "0.22"
+cfb-mode = "0.8"
+crc32fast = "1"
 directories = "5"
+futures-util = "0.3"
+hmac = "0.12"
+md-5 = "0.10"
 prost = "0.13"
+rand = "0.9"
 regex = "1"
+rustls-pki-types = "1"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+sha2 = "0.10"
 slint = "1.8"
 slint-build = "1.8"
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-rustls = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
+uuid = "1"
 webbrowser = "1"
+webpki-roots = "0.26"
 winreg = "0.52"

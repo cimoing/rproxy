@@ -35,6 +35,21 @@ nodes:
         path: /proxy
         host: example.com
 
+  - id: vmess-1
+    name: Example VMess
+    protocol: vmess
+    server: vmess.example.com
+    port: 443
+    options:
+      uuid: 00000000-0000-0000-0000-000000000000
+      alter_id: 0
+      security: none
+      tls: true
+      transport: websocket
+      websocket:
+        path: /vmess
+        host: vmess.example.com
+
 proxy:
   http_listen: 127.0.0.1:7890
   socks_listen: 127.0.0.1:7891
