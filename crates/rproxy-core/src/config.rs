@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum ConfigError {
     #[error("failed to read config file: {0}")]
     Read(#[from] std::io::Error),
-    #[error("failed to parse yaml config: {0}")]
-    Parse(#[from] serde_yaml::Error),
+    #[error("failed to process yaml config: {0}")]
+    Yaml(#[from] serde_yaml::Error),
     #[error("config validation failed: {0}")]
     Validation(String),
 }
@@ -229,15 +229,53 @@ impl Config {
         Ok(config)
     }
 
+    pub fn load_or_create(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let config = Self::default_user_config();
+            config.save(path)?;
+            return Ok(config);
+        }
+
+        Self::load(path)
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
+        if let Some(parent) = path.as_ref().parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let text = serde_yaml::to_string(self)?;
+        fs::write(path, text)?;
+        Ok(())
+    }
+
+    pub fn default_user_config() -> Self {
+        Self {
+            profile: ProfileConfig {
+                id: "default".into(),
+                name: "Default".into(),
+                enabled: true,
+            },
+            nodes: Vec::new(),
+            proxy: ProxyConfig {
+                http_listen: "127.0.0.1:7890".parse().expect("valid default HTTP listen"),
+                socks_listen: "127.0.0.1:7891"
+                    .parse()
+                    .expect("valid default SOCKS listen"),
+            },
+            system: SystemConfig::default(),
+            tun: TunConfig::default(),
+            pac: PacConfig::default(),
+            routing: RoutingConfig::default(),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.profile.id.trim().is_empty() {
             return Err(ConfigError::Validation("profile.id is required".into()));
-        }
-
-        if self.nodes.is_empty() {
-            return Err(ConfigError::Validation(
-                "at least one node is required".into(),
-            ));
         }
 
         for node in &self.nodes {

@@ -1,9 +1,12 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use tokio::sync::Mutex;
 
 use crate::{
-    config::{Config, ConfigError},
+    config::{Config, ConfigError, NodeConfig},
     platform::{Autostart, SystemProxy},
     proxy::{ProxyRuntime, RuntimeError, RuntimeStatus},
 };
@@ -32,6 +35,7 @@ pub struct AppService {
 
 struct AppState {
     config: Option<Config>,
+    config_path: Option<PathBuf>,
     runtime: Option<ProxyRuntime>,
     status: AppStatus,
 }
@@ -41,6 +45,7 @@ impl AppService {
         Self {
             inner: Arc::new(Mutex::new(AppState {
                 config: None,
+                config_path: None,
                 runtime: None,
                 status: AppStatus {
                     running: false,
@@ -52,10 +57,65 @@ impl AppService {
     }
 
     pub async fn load_config(&self, path: impl AsRef<Path>) -> Result<AppStatus, AppError> {
-        let config = Config::load(path)?;
+        let path = path.as_ref().to_path_buf();
+        let config = Config::load(&path)?;
+        self.set_config(config, Some(path)).await
+    }
+
+    pub async fn load_or_create_config(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<AppStatus, AppError> {
+        let config = Config::load_or_create(path.as_ref())?;
+        self.set_config(config, Some(path.as_ref().to_path_buf()))
+            .await
+    }
+
+    async fn set_config(
+        &self,
+        config: Config,
+        config_path: Option<PathBuf>,
+    ) -> Result<AppStatus, AppError> {
         config.validate()?;
         let mut state = self.inner.lock().await;
         state.status.message = format!("Loaded profile {}", config.profile.name);
+        state.config_path = config_path;
+        state.config = Some(config);
+        Ok(state.status.clone())
+    }
+
+    pub async fn nodes(&self) -> Vec<NodeConfig> {
+        self.inner
+            .lock()
+            .await
+            .config
+            .as_ref()
+            .map(|config| config.nodes.clone())
+            .unwrap_or_default()
+    }
+
+    pub async fn save_node(
+        &self,
+        index: Option<usize>,
+        node: NodeConfig,
+    ) -> Result<AppStatus, AppError> {
+        let mut state = self.inner.lock().await;
+        let mut config = state.config.clone().ok_or(AppError::NoConfig)?;
+        match index {
+            Some(index) if index < config.nodes.len() => {
+                let mut node = node;
+                node.id = config.nodes[index].id.clone();
+                config.nodes[index] = node;
+            }
+            Some(_) | None => config.nodes.push(node),
+        }
+        config.validate()?;
+
+        if let Some(path) = &state.config_path {
+            config.save(path)?;
+        }
+
+        state.status.message = "Node saved".into();
         state.config = Some(config);
         Ok(state.status.clone())
     }
