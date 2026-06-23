@@ -1,0 +1,20 @@
+[package]
+name = "rproxy-gui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+rproxy-core = { path = "../rproxy-core" }
+slint.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+webbrowser.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+

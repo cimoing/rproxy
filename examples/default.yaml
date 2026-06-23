@@ -1,0 +1,67 @@
+profile:
+  id: default
+  name: Default
+  enabled: true
+
+nodes:
+  - id: http-1
+    name: Example HTTP
+    protocol: http
+    server: 192.168.122.4
+    port: 1081
+    options:
+      username: 
+      password:
+
+  - id: socks-1
+    name: Example SOCKS
+    protocol: socks
+    server: socks.example.com
+    port: 1080
+    options:
+      username: user
+      password: pass
+
+  - id: vless-1
+    name: Example VLESS
+    protocol: vless
+    server: example.com
+    port: 443
+    options:
+      uuid: 00000000-0000-0000-0000-000000000000
+      tls: true
+      transport: websocket
+      websocket:
+        path: /proxy
+        host: example.com
+
+proxy:
+  http_listen: 127.0.0.1:1081
+  socks_listen: 127.0.0.1:1080
+
+system:
+  tray: true
+  auto_start: false
+
+tun:
+  enabled: false
+  interface_name: rproxy-tun
+  auto_route: true
+
+pac:
+  enabled: true
+  listen: 127.0.0.1:7892
+
+routing:
+  mode: auto
+  default_action: proxy
+  geosite:
+    enabled: true
+    auto_update: false
+  rules:
+    - type: domain_suffix
+      value: example.cn
+      action: direct
+    - type: ip_cidr
+      value: 10.0.0.0/8
+      action: direct

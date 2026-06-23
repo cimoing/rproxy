@@ -1,0 +1,86 @@
+import { Button, VerticalBox, HorizontalBox, LineEdit } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "RProxy";
+    width: 760px;
+    height: 480px;
+
+    in-out property <string> config-path;
+    in-out property <string> status;
+
+    callback load-config(string);
+    callback start-proxy();
+    callback stop-proxy();
+    callback open-pac(string);
+
+    VerticalBox {
+        padding: 24px;
+        spacing: 16px;
+
+        Text {
+            text: "RProxy";
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        Text {
+            text: root.status;
+            color: #315b7a;
+        }
+
+        HorizontalBox {
+            spacing: 8px;
+
+            LineEdit {
+                text <=> root.config-path;
+            }
+
+            Button {
+                text: "加载配置";
+                clicked => {
+                    root.load-config(root.config-path);
+                }
+            }
+        }
+
+        HorizontalBox {
+            spacing: 8px;
+
+            Button {
+                text: "启动代理";
+                clicked => {
+                    root.start-proxy();
+                }
+            }
+
+            Button {
+                text: "停止代理";
+                clicked => {
+                    root.stop-proxy();
+                }
+            }
+
+            Button {
+                text: "打开 PAC";
+                clicked => {
+                    root.open-pac("http://127.0.0.1:7892/proxy.pac");
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d8dee5;
+        }
+
+        Text {
+            text: "Phase 1: YAML, HTTP/SOCKS listeners, routing, PAC, Windows proxy, tray, autostart.";
+            color: #425466;
+        }
+
+        Text {
+            text: "Tun mode, full profile management, and subscriptions are planned for later phases.";
+            color: #6b7280;
+        }
+    }
+}

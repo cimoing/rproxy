@@ -1,0 +1,21 @@
+# Built-in seed data for phase one. This is intentionally small until the
+# licensed geosite bundle is wired into the build pipeline.
+cn
+com.cn
+net.cn
+org.cn
+gov.cn
+edu.cn
+baidu.com
+qq.com
+taobao.com
+tmall.com
+jd.com
+bilibili.com
+zhihu.com
+douyin.com
+weibo.com
+aliyun.com
+tencent.com
+163.com
+
