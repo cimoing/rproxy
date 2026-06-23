@@ -7,7 +7,7 @@ Phase one focuses on:
 - Windows GUI shell.
 - YAML configuration.
 - HTTP and SOCKS local listeners.
-- VLESS node configuration with TLS and WebSocket options.
+- HTTP, SOCKS, and VMess outbound node configuration.
 - Automatic routing.
 - Built-in geosite rule data.
 - PAC generation and local PAC serving.
@@ -25,4 +25,3 @@ cargo run -p rproxy-gui
 cargo fmt
 cargo check
 ```
-

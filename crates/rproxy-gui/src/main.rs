@@ -322,7 +322,7 @@ fn build_node(draft: NodeDraft) -> Result<NodeConfig, String> {
     } else {
         draft.name.trim().to_string()
     };
-    let proxy_protocol = matches!(protocol, Protocol::Vless | Protocol::Vmess);
+    let proxy_protocol = matches!(protocol, Protocol::Vmess);
     let auth_protocol = matches!(protocol, Protocol::Http | Protocol::Socks);
     let transport = if proxy_protocol {
         parse_transport(&draft.transport)?
@@ -391,9 +391,8 @@ fn parse_protocol(value: &str) -> Result<Protocol, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "http" => Ok(Protocol::Http),
         "socks" | "socks5" => Ok(Protocol::Socks),
-        "vless" => Ok(Protocol::Vless),
         "vmess" => Ok(Protocol::Vmess),
-        _ => Err("Protocol must be http, socks, vless, or vmess".into()),
+        _ => Err("Protocol must be http, socks, or vmess".into()),
     }
 }
 
@@ -409,7 +408,6 @@ fn protocol_label(protocol: &Protocol) -> &'static str {
     match protocol {
         Protocol::Http => "http",
         Protocol::Socks => "socks5",
-        Protocol::Vless => "vless",
         Protocol::Vmess => "vmess",
     }
 }

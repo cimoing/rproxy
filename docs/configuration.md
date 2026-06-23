@@ -31,19 +31,6 @@ nodes:
       username: user
       password: pass
 
-  - id: vless-1
-    name: Example VLESS
-    protocol: vless
-    server: example.com
-    port: 443
-    options:
-      uuid: 00000000-0000-0000-0000-000000000000
-      tls: true
-      transport: websocket
-      websocket:
-        path: /proxy
-        host: example.com
-
   - id: vmess-1
     name: Example VMess
     protocol: vmess
@@ -137,7 +124,7 @@ profile:
 
 - `id`：节点唯一标识。建议在配置内唯一。
 - `name`：节点显示名称。
-- `protocol`：节点协议。阶段一支持 `http`、`socks`、`vless`、`vmess`。
+- `protocol`：节点协议。阶段一支持 `http`、`socks`、`vmess`。
 - `server`：远端服务器地址。必填。
 - `port`：远端服务器端口。必填。
 - `options`：协议相关参数。
@@ -197,55 +184,7 @@ nodes:
 
 阶段一协议名称统一使用 `socks`。后续如需区分 SOCKS4、SOCKS4a、SOCKS5，可扩展为独立字段。
 
-### 4.3 VLESS 节点
-
-```yaml
-nodes:
-  - id: vless-1
-    name: Example VLESS
-    protocol: vless
-    server: example.com
-    port: 443
-    options:
-      uuid: 00000000-0000-0000-0000-000000000000
-      tls: true
-      transport: websocket
-      websocket:
-        path: /proxy
-        host: example.com
-```
-
-字段说明：
-
-- `protocol` 固定为 `vless`。
-- `uuid`：VLESS 用户 UUID。必填。
-- `tls`：是否启用 TLS。阶段一支持 `true`。
-- `transport`：传输方式。阶段一支持 `websocket`，也预留 `tcp`。
-- `websocket.path`：WebSocket 请求路径。默认建议以 `/` 开头。
-- `websocket.host`：WebSocket Host。可选，通常与节点域名一致。
-
-校验规则：
-
-- 当 `protocol` 为 `vless` 时，`options.uuid` 必填。
-- 当 `transport` 为 `websocket` 时，`options.websocket` 必填。
-
-当前实现范围：
-
-- 支持 VLESS TCP 出站。
-- 支持 VLESS over TLS。
-- 支持 VLESS over WebSocket。
-- 支持 VLESS over WebSocket + TLS。
-- 支持 TCP CONNECT 流量。
-
-暂不支持：
-
-- UDP。
-- Reality。
-- XTLS Vision。
-- Mux。
-- VLESS flow 参数。
-
-### 4.4 VMess 节点
+### 4.3 VMess 节点
 
 ```yaml
 nodes:
@@ -525,8 +464,8 @@ rules:
 - `profile.id` 不允许为空。
 - `nodes` 至少需要一个节点。
 - 每个节点的 `server` 不允许为空。
-- VLESS 和 VMess 节点必须配置 `options.uuid`。
-- VLESS 和 VMess WebSocket 节点必须配置 `options.websocket`。
+- VMess 节点必须配置 `options.uuid`。
+- VMess WebSocket 节点必须配置 `options.websocket`。
 
 建议额外遵守：
 
@@ -537,7 +476,7 @@ rules:
 
 ## 11. 阶段一边界
 
-阶段一配置文件已经覆盖 HTTP、SOCKS、VLESS、路由、PAC 和 Windows 系统集成字段。
+阶段一配置文件已经覆盖 HTTP、SOCKS、VMess、路由、PAC 和 Windows 系统集成字段。
 
 当前已实现的网络协议能力：
 
@@ -554,6 +493,5 @@ rules:
 - 订阅格式导入。
 - geosite 在线更新。
 - 普通 HTTP 请求转发，也就是非 `CONNECT` 请求。
-- VLESS 出站协议链路。
 - 节点健康检查和延迟测试。
 - 更多协议和传输方式。

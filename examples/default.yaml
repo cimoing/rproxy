@@ -22,19 +22,6 @@ nodes:
       username: user
       password: pass
 
-  - id: vless-1
-    name: Example VLESS
-    protocol: vless
-    server: example.com
-    port: 443
-    options:
-      uuid: 00000000-0000-0000-0000-000000000000
-      tls: true
-      transport: websocket
-      websocket:
-        path: /proxy
-        host: example.com
-
   - id: vmess-1
     name: Example VMess
     protocol: vmess

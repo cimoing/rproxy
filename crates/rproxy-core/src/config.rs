@@ -52,7 +52,6 @@ pub struct NodeConfig {
 pub enum Protocol {
     Http,
     Socks,
-    Vless,
     Vmess,
 }
 
@@ -286,7 +285,7 @@ impl Config {
                 )));
             }
 
-            if matches!(node.protocol, Protocol::Vless | Protocol::Vmess) {
+            if matches!(node.protocol, Protocol::Vmess) {
                 if node
                     .options
                     .uuid
@@ -302,7 +301,7 @@ impl Config {
                 }
             }
 
-            if matches!(node.protocol, Protocol::Vless | Protocol::Vmess) {
+            if matches!(node.protocol, Protocol::Vmess) {
                 if node.options.transport == Some(Transport::WebSocket)
                     && node.options.websocket.is_none()
                 {

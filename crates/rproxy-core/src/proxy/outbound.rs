@@ -63,13 +63,11 @@ pub enum OutboundError {
     SocksReply(u8),
     #[error("socks5 authentication failed")]
     SocksAuth,
-    #[error("vless config error: {0}")]
-    VlessConfig(String),
     #[error("vmess config error: {0}")]
     VmessConfig(String),
-    #[error("vless websocket error: {0}")]
+    #[error("websocket error: {0}")]
     WebSocket(String),
-    #[error("vless tls error: {0}")]
+    #[error("tls error: {0}")]
     Tls(String),
 }
 
@@ -139,7 +137,6 @@ pub async fn connect_via_node(
     match node.protocol {
         Protocol::Http => connect_via_http(node, target).await,
         Protocol::Socks => connect_via_socks5(node, target).await,
-        Protocol::Vless => connect_via_vless(node, target).await,
         Protocol::Vmess => connect_via_vmess(node, target).await,
     }
 }
@@ -253,117 +250,6 @@ async fn connect_via_socks5(
 
     read_socks_bound_addr(&mut stream, header[3]).await?;
     Ok(Box::new(stream))
-}
-
-async fn connect_via_vless(
-    node: &NodeConfig,
-    target: &TargetAddr,
-) -> Result<BoxedProxyStream, OutboundError> {
-    match node.options.transport {
-        Some(Transport::WebSocket) => connect_via_vless_websocket(node, target).await,
-        Some(Transport::Tcp) | None => connect_via_vless_stream(node, target).await,
-    }
-}
-
-async fn connect_via_vless_stream(
-    node: &NodeConfig,
-    target: &TargetAddr,
-) -> Result<BoxedProxyStream, OutboundError> {
-    let stream = TcpStream::connect(format!("{}:{}", node.server, node.port)).await?;
-    let header = encode_vless_request(node, target)?;
-
-    if node.options.tls {
-        let server_name = rustls_pki_types::ServerName::try_from(node.server.clone())
-            .map_err(|error| OutboundError::Tls(error.to_string()))?;
-        let connector = TlsConnector::from(Arc::new(tls_config()));
-        let mut stream = connector.connect(server_name, stream).await?;
-        stream.write_all(&header).await?;
-        Ok(Box::new(VlessResponseStream::new(stream)))
-    } else {
-        let mut stream = stream;
-        stream.write_all(&header).await?;
-        Ok(Box::new(VlessResponseStream::new(stream)))
-    }
-}
-
-async fn connect_via_vless_websocket(
-    node: &NodeConfig,
-    target: &TargetAddr,
-) -> Result<BoxedProxyStream, OutboundError> {
-    let ws = node
-        .options
-        .websocket
-        .as_ref()
-        .ok_or_else(|| OutboundError::VlessConfig("websocket options are required".into()))?;
-    let scheme = if node.options.tls { "wss" } else { "ws" };
-    let path = if ws.path.starts_with('/') {
-        ws.path.clone()
-    } else {
-        format!("/{}", ws.path)
-    };
-    let url = format!("{scheme}://{}:{}{path}", node.server, node.port);
-    let mut request = url
-        .into_client_request()
-        .map_err(|error| OutboundError::WebSocket(error.to_string()))?;
-    if let Some(host) = &ws.host {
-        request.headers_mut().insert(
-            "Host",
-            host.parse().map_err(|error| {
-                OutboundError::WebSocket(format!("invalid websocket host header: {error}"))
-            })?,
-        );
-    }
-
-    let (mut websocket, _) = connect_async(request)
-        .await
-        .map_err(|error| OutboundError::WebSocket(error.to_string()))?;
-    websocket
-        .send(Message::Binary(encode_vless_request(node, target)?.into()))
-        .await
-        .map_err(|error| OutboundError::WebSocket(error.to_string()))?;
-
-    let (client, mut app) = tokio::io::duplex(64 * 1024);
-    tokio::spawn(async move {
-        let mut response_consumed = false;
-        loop {
-            tokio::select! {
-                read = read_duplex_chunk(&mut app) => {
-                    let Ok(Some(chunk)) = read else {
-                        let _ = websocket.close(None).await;
-                        break;
-                    };
-                    if websocket.send(Message::Binary(chunk.into())).await.is_err() {
-                        break;
-                    }
-                }
-                message = websocket.next() => {
-                    let Some(Ok(message)) = message else {
-                        let _ = app.shutdown().await;
-                        break;
-                    };
-                    let data = match message {
-                        Message::Binary(data) => data.to_vec(),
-                        Message::Close(_) => {
-                            let _ = app.shutdown().await;
-                            break;
-                        }
-                        _ => continue,
-                    };
-                    let payload = if response_consumed {
-                        data
-                    } else {
-                        response_consumed = true;
-                        strip_vless_response_header(&data).unwrap_or_default()
-                    };
-                    if !payload.is_empty() && app.write_all(&payload).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    });
-
-    Ok(Box::new(client))
 }
 
 async fn connect_via_vmess(
@@ -578,25 +464,6 @@ async fn read_port(stream: &mut TcpStream) -> Result<u16, OutboundError> {
     let mut port = [0_u8; 2];
     stream.read_exact(&mut port).await?;
     Ok(u16::from_be_bytes(port))
-}
-
-fn encode_vless_request(node: &NodeConfig, target: &TargetAddr) -> Result<Vec<u8>, OutboundError> {
-    let uuid = node
-        .options
-        .uuid
-        .as_deref()
-        .ok_or_else(|| OutboundError::VlessConfig("uuid is required".into()))?;
-    let uuid = Uuid::parse_str(uuid)
-        .map_err(|error| OutboundError::VlessConfig(format!("invalid uuid: {error}")))?;
-
-    let mut out = Vec::with_capacity(64);
-    out.push(0x00);
-    out.extend_from_slice(uuid.as_bytes());
-    out.push(0x00);
-    out.push(0x01);
-    out.extend_from_slice(&target.port().to_be_bytes());
-    encode_vless_addr(target, &mut out)?;
-    Ok(out)
 }
 
 #[derive(Debug, Clone)]
@@ -933,33 +800,6 @@ fn fnv1a(bytes: &[u8]) -> u32 {
     hash
 }
 
-fn encode_vless_addr(target: &TargetAddr, out: &mut Vec<u8>) -> Result<(), OutboundError> {
-    match target {
-        TargetAddr::Ip {
-            ip: IpAddr::V4(ip), ..
-        } => {
-            out.push(0x01);
-            out.extend_from_slice(&ip.octets());
-        }
-        TargetAddr::Domain { host, .. } => {
-            if host.len() > u8::MAX as usize {
-                return Err(OutboundError::InvalidTarget(host.clone()));
-            }
-            out.push(0x02);
-            out.push(host.len() as u8);
-            out.extend_from_slice(host.as_bytes());
-        }
-        TargetAddr::Ip {
-            ip: IpAddr::V6(ip), ..
-        } => {
-            out.push(0x03);
-            out.extend_from_slice(&ip.octets());
-        }
-    }
-
-    Ok(())
-}
-
 fn tls_config() -> rustls::ClientConfig {
     let roots = rustls::RootCertStore {
         roots: TLS_SERVER_ROOTS.to_vec(),
@@ -977,92 +817,6 @@ async fn read_duplex_chunk(stream: &mut DuplexStream) -> std::io::Result<Option<
     }
     buffer.truncate(read);
     Ok(Some(buffer))
-}
-
-fn strip_vless_response_header(data: &[u8]) -> Option<Vec<u8>> {
-    if data.len() < 2 {
-        return Some(Vec::new());
-    }
-    let addon_len = data[1] as usize;
-    let header_len = 2 + addon_len;
-    if data.len() <= header_len {
-        Some(Vec::new())
-    } else {
-        Some(data[header_len..].to_vec())
-    }
-}
-
-struct VlessResponseStream<S> {
-    inner: S,
-    response_header: Vec<u8>,
-    response_consumed: bool,
-}
-
-impl<S> VlessResponseStream<S> {
-    fn new(inner: S) -> Self {
-        Self {
-            inner,
-            response_header: Vec::with_capacity(64),
-            response_consumed: false,
-        }
-    }
-}
-
-impl<S> AsyncRead for VlessResponseStream<S>
-where
-    S: AsyncRead + Unpin,
-{
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        while !self.response_consumed {
-            let mut byte = [0_u8; 1];
-            let mut read_buf = ReadBuf::new(&mut byte);
-            match Pin::new(&mut self.inner).poll_read(cx, &mut read_buf) {
-                Poll::Ready(Ok(())) if read_buf.filled().is_empty() => {
-                    self.response_consumed = true;
-                    break;
-                }
-                Poll::Ready(Ok(())) => {
-                    self.response_header.push(byte[0]);
-                    if self.response_header.len() >= 2 {
-                        let expected_len = 2 + self.response_header[1] as usize;
-                        if self.response_header.len() >= expected_len {
-                            self.response_consumed = true;
-                            break;
-                        }
-                    }
-                }
-                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-
-        Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
-}
-
-impl<S> AsyncWrite for VlessResponseStream<S>
-where
-    S: AsyncWrite + Unpin,
-{
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
 }
 
 struct VmessResponseStream<S> {
@@ -1308,29 +1062,6 @@ mod tests {
                 port: 80
             }
         );
-    }
-
-    #[test]
-    fn encodes_vless_request_header() {
-        let node = NodeConfig {
-            id: "vless-1".into(),
-            name: "VLESS".into(),
-            protocol: Protocol::Vless,
-            server: "example.com".into(),
-            port: 443,
-            options: crate::config::NodeOptions {
-                uuid: Some("00000000-0000-0000-0000-000000000000".into()),
-                ..Default::default()
-            },
-        };
-        let target = TargetAddr::parse_host_port("example.org:443").unwrap();
-        let header = encode_vless_request(&node, &target).unwrap();
-        assert_eq!(header[0], 0x00);
-        assert_eq!(&header[1..17], &[0_u8; 16]);
-        assert_eq!(header[17], 0x00);
-        assert_eq!(header[18], 0x01);
-        assert_eq!(&header[19..21], &443_u16.to_be_bytes());
-        assert_eq!(header[21], 0x02);
     }
 
     #[test]

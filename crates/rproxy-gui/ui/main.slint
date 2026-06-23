@@ -1,4 +1,4 @@
-import { ListView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, ListView, Palette, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
 export struct NodeRow {
     index: int,
@@ -7,135 +7,12 @@ export struct NodeRow {
     protocol: string,
 }
 
-component AppButton inherits Rectangle {
-    in property <string> text;
-    in property <bool> primary;
-    callback clicked();
-
-    height: 34px;
-    min-width: 96px;
-    border-radius: 4px;
-    border-width: 1px;
-    border-color: root.primary ? #256f8f : #aeb9c6;
-    background: touch.pressed ? #cad8e6 : (touch.has-hover ? #dde8f3 : (root.primary ? #d0e8f3 : #edf2f7));
-
-    Text {
-        text: root.text;
-        color: #17202a;
-        font-weight: root.primary ? 700 : 500;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
-component FormInput inherits Rectangle {
-    in-out property <string> text;
-
-    height: 32px;
-    border-radius: 4px;
-    border-width: 1px;
-    border-color: input.has-focus ? #2f7fa4 : #aeb9c6;
-    background: #f8fafc;
-
-    input := TextInput {
-        x: 9px;
-        y: 1px;
-        width: parent.width - 18px;
-        height: parent.height - 2px;
-        text <=> root.text;
-        color: #17202a;
-        selection-background-color: #b9d9ea;
-        vertical-alignment: center;
-        single-line: true;
-    }
-}
-
-component SelectBox inherits Rectangle {
-    in-out property <string> value;
-    in property <[string]> options;
-    property <bool> open;
-
-    height: 32px;
-    clip: false;
-
-    Rectangle {
-        height: 32px;
-        border-radius: 4px;
-        border-width: 1px;
-        border-color: root.open ? #2f7fa4 : #aeb9c6;
-        background: touch.has-hover ? #edf4fa : #f8fafc;
-
-        Text {
-            x: 9px;
-            width: parent.width - 34px;
-            height: parent.height;
-            text: root.value;
-            color: #17202a;
-            vertical-alignment: center;
-        }
-
-        Text {
-            x: parent.width - 24px;
-            width: 16px;
-            height: parent.height;
-            text: root.open ? "▲" : "▼";
-            color: #425466;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-
-        touch := TouchArea {
-            clicked => {
-                root.open = !root.open;
-            }
-        }
-    }
-
-    if root.open : Rectangle {
-        y: 34px;
-        z: 50;
-        width: parent.width;
-        height: root.options.length * 30px;
-        border-radius: 4px;
-        border-width: 2px;
-        border-color: #2f7fa4;
-        background: #d8e6f0;
-
-        VerticalBox {
-            for option in root.options : Rectangle {
-                height: 30px;
-                background: row-touch.has-hover ? #bcd7ea : (option == root.value ? #a8cee3 : #d8e6f0);
-
-                Text {
-                    x: 9px;
-                    width: parent.width - 18px;
-                    height: parent.height;
-                    text: option;
-                    color: #17202a;
-                    vertical-alignment: center;
-                }
-
-                row-touch := TouchArea {
-                    clicked => {
-                        root.value = option;
-                        root.open = false;
-                    }
-                }
-            }
-        }
-    }
-}
-
 export component MainWindow inherits Window {
     title: "RProxy";
-    width: 900px;
-    height: 620px;
+    preferred-width: 900px;
+    preferred-height: 620px;
+    min-width: 760px;
+    min-height: 520px;
     default-font-size: 14px;
 
     in-out property <string> status;
@@ -162,12 +39,15 @@ export component MainWindow inherits Window {
     callback save-node(int, string, string, string, string, string, string, string, bool, string, string);
     callback cancel-edit();
 
-    property <color> primary-text: #17202a;
-    property <color> secondary-text: #425466;
-    property <color> panel-background: #f3f6fa;
-    property <color> page-background: #e9eef5;
-    property <color> row-background: #f8fafc;
-    property <bool> proxy-protocol: root.edit-protocol == "vless" || root.edit-protocol == "vmess";
+    property <brush> primary-text: Palette.foreground;
+    property <brush> secondary-text: Palette.foreground;
+    property <brush> panel-background: Palette.background;
+    property <brush> page-background: Palette.alternate-background;
+    property <brush> row-background: Palette.background;
+    property <brush> row-hover-background: Palette.alternate-background;
+    property <brush> border-color: Palette.border;
+    property <brush> status-text: Palette.selection-background;
+    property <bool> proxy-protocol: root.edit-protocol == "vmess";
     property <bool> auth-protocol: root.edit-protocol == "http" || root.edit-protocol == "socks5";
     property <bool> websocket-transport: root.edit-transport == "websocket";
 
@@ -189,7 +69,7 @@ export component MainWindow inherits Window {
                     horizontal-stretch: 1;
                 }
 
-                AppButton {
+                Button {
                     text: "添加节点";
                     primary: true;
                     clicked => {
@@ -197,7 +77,7 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                AppButton {
+                Button {
                     text: root.running ? "停止代理" : "启动代理";
                     primary: false;
                     clicked => {
@@ -205,7 +85,7 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                AppButton {
+                Button {
                     text: "打开 PAC";
                     primary: false;
                     clicked => {
@@ -216,7 +96,7 @@ export component MainWindow inherits Window {
 
             Text {
                 text: root.status;
-                color: #315b7a;
+                color: root.status-text;
             }
 
             VerticalBox {
@@ -235,7 +115,7 @@ export component MainWindow inherits Window {
 
                 Rectangle {
                     height: 1px;
-                    background: #d8dee5;
+                    background: root.border-color;
                 }
 
                 ListView {
@@ -243,7 +123,7 @@ export component MainWindow inherits Window {
 
                     for node in root.nodes : Rectangle {
                         height: 44px;
-                        background: touch.has-hover ? #dfeaf6 : root.row-background;
+                        background: touch.has-hover ? root.row-hover-background : root.row-background;
 
                         HorizontalBox {
                             padding-left: 8px;
@@ -280,11 +160,11 @@ export component MainWindow inherits Window {
 
             Rectangle {
                 width: 460px;
-                height: 500px;
+                height: root.proxy-protocol ? 500px : 390px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.panel-background;
-                border-color: #d8dee5;
+                border-color: root.border-color;
                 border-width: 1px;
                 border-radius: 6px;
 
@@ -297,128 +177,120 @@ export component MainWindow inherits Window {
                         font-size: 18px;
                         font-weight: 700;
                         color: root.primary-text;
+                        vertical-stretch: 0;
                     }
 
                     HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "名称"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-name; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-name; horizontal-stretch: 1; }
                     }
 
                     HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "域名"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-server; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-server; horizontal-stretch: 1; }
                     }
 
                     HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "端口"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-port; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-port; horizontal-stretch: 1; }
                     }
 
                     HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         z: 20;
                         Text { text: "协议"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        SelectBox {
-                            options: ["vmess", "vless", "http", "socks5"];
-                            value <=> root.edit-protocol;
+                        ComboBox {
+                            model: ["vmess", "http", "socks5"];
+                            current-value <=> root.edit-protocol;
                             horizontal-stretch: 1;
                         }
                     }
 
                     if root.auth-protocol : HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "用户名"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-username; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-username; horizontal-stretch: 1; }
                     }
 
                     if root.auth-protocol : HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "密码"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-password; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-password; input-type: InputType.password; horizontal-stretch: 1; }
                     }
 
                     if root.proxy-protocol : HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "UUID"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-uuid; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-uuid; horizontal-stretch: 1; }
                     }
 
                     if root.proxy-protocol : HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "TLS"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        Rectangle {
-                            width: 54px;
-                            height: 28px;
-                            border-radius: 14px;
-                            border-width: 1px;
-                            border-color: root.edit-tls ? #256f8f : #8fa0b2;
-                            background: root.edit-tls ? #2f7fa4 : (tls-touch.has-hover ? #dfe8f1 : #eef3f8);
-
-                            Rectangle {
-                                width: 22px;
-                                height: 22px;
-                                x: root.edit-tls ? parent.width - self.width - 3px : 3px;
-                                y: 3px;
-                                border-radius: 11px;
-                                background: #f8fafc;
-                                border-width: 1px;
-                                border-color: root.edit-tls ? #18536d : #8fa0b2;
-                            }
-
-                            tls-touch := TouchArea {
-                                clicked => {
-                                    root.edit-tls = !root.edit-tls;
-                                }
-                            }
-                        }
+                        CheckBox { text: "启用"; checked <=> root.edit-tls; }
                     }
 
                     if root.proxy-protocol : HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         z: 18;
                         Text { text: "传输"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        SelectBox {
-                            options: ["websocket", "tcp"];
-                            value <=> root.edit-transport;
+                        ComboBox {
+                            model: ["websocket", "tcp"];
+                            current-value <=> root.edit-transport;
                             horizontal-stretch: 1;
                         }
                     }
 
                     if root.proxy-protocol && root.websocket-transport : HorizontalBox {
                         height: 36px;
+                        vertical-stretch: 0;
                         spacing: 12px;
                         Text { text: "WS Path"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                        FormInput { text <=> root.edit-ws-path; horizontal-stretch: 1; }
+                        LineEdit { text <=> root.edit-ws-path; horizontal-stretch: 1; }
                     }
 
                     HorizontalBox {
-                        height: 36px;
-                        spacing: 8px;
-                        alignment: end;
+                        height: 44px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        alignment: center;
 
-                        AppButton {
+                        Button {
                             text: "保存";
                             primary: true;
+                            width: 88px;
+                            height: 36px;
                             clicked => {
                                 root.save-node(root.edit-index, root.edit-name, root.edit-server, root.edit-port, root.edit-protocol, root.edit-username, root.edit-password, root.edit-uuid, root.edit-tls, root.edit-transport, root.edit-ws-path);
                             }
                         }
 
-                        AppButton {
+                        Button {
                             text: "取消";
                             primary: false;
+                            width: 88px;
+                            height: 36px;
                             clicked => {
                                 root.cancel-edit();
                             }
