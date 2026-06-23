@@ -1,13 +1,19 @@
+mod geosite;
+
+use std::collections::HashMap;
 use std::net::IpAddr;
 
 use crate::config::{Config, RouteAction, RouteRule, RouteRuleType, RoutingMode};
+
+const MAX_PAC_GEOSITE_EXPANSION: usize = 2048;
 
 #[derive(Debug, Clone)]
 pub struct Router {
     mode: RoutingMode,
     default_action: RouteAction,
     rules: Vec<RouteRule>,
-    geosite_cn: Vec<String>,
+    geosite_cn: Vec<geosite::GeositeMatcher>,
+    geosite_rules: HashMap<String, Vec<geosite::GeositeMatcher>>,
 }
 
 #[derive(Debug, Clone)]
@@ -16,13 +22,36 @@ pub struct RouteDecision {
     pub reason: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PacRule {
+    pub action: RouteAction,
+    pub condition: String,
+}
+
 impl Router {
     pub fn from_config(config: &Config) -> Self {
         Self {
             mode: config.routing.mode.clone(),
             default_action: config.routing.default_action,
             rules: config.routing.rules.clone(),
-            geosite_cn: load_builtin_geosite_cn(),
+            geosite_cn: if config.routing.geosite.enabled {
+                geosite::load_cn_with_fallback(config.routing.geosite.path.as_deref())
+            } else {
+                Vec::new()
+            },
+            geosite_rules: if config.routing.geosite.enabled {
+                geosite::load_categories(
+                    config.routing.geosite.path.as_deref(),
+                    config
+                        .routing
+                        .rules
+                        .iter()
+                        .filter(|rule| rule.kind == RouteRuleType::Geosite)
+                        .map(|rule| rule.value.clone()),
+                )
+            } else {
+                HashMap::new()
+            },
         }
     }
 
@@ -51,7 +80,7 @@ impl Router {
         if self
             .geosite_cn
             .iter()
-            .any(|suffix| domain_suffix_matches(&normalized, suffix))
+            .any(|matcher| geosite::matches(&normalized, matcher))
         {
             return RouteDecision::new(RouteAction::Direct, "geosite:cn");
         }
@@ -74,14 +103,79 @@ impl Router {
                 domain_suffix_matches(host, &rule.value.to_ascii_lowercase())
             }
             RouteRuleType::Geosite => {
-                rule.value.eq_ignore_ascii_case("cn")
-                    && self
-                        .geosite_cn
-                        .iter()
-                        .any(|suffix| domain_suffix_matches(host, suffix))
+                let category = geosite::normalize_category(&rule.value);
+                let matchers = if category == "CN" {
+                    Some(&self.geosite_cn)
+                } else {
+                    self.geosite_rules.get(&category)
+                };
+                matchers
+                    .into_iter()
+                    .flatten()
+                    .any(|matcher| geosite::matches(host, matcher))
             }
             RouteRuleType::IpCidr | RouteRuleType::Port => false,
         }
+    }
+
+    pub fn pac_rules(&self) -> Vec<PacRule> {
+        if self.mode != RoutingMode::Auto {
+            return Vec::new();
+        }
+
+        let mut rules = Vec::new();
+
+        for rule in &self.rules {
+            rules.extend(self.route_rule_to_pac(rule));
+        }
+
+        rules
+    }
+
+    pub fn default_action(&self) -> RouteAction {
+        match self.mode {
+            RoutingMode::GlobalProxy => RouteAction::Proxy,
+            RoutingMode::GlobalDirect => RouteAction::Direct,
+            RoutingMode::Auto => self.default_action,
+        }
+    }
+
+    fn route_rule_to_pac(&self, rule: &RouteRule) -> Vec<PacRule> {
+        let conditions = match rule.kind {
+            RouteRuleType::Domain => vec![format!(
+                r#"host == "{}""#,
+                escape_js(&rule.value.to_ascii_lowercase())
+            )],
+            RouteRuleType::DomainSuffix => {
+                let suffix = rule
+                    .value
+                    .trim()
+                    .trim_start_matches('.')
+                    .to_ascii_lowercase();
+                vec![format!(
+                    r#"(host == "{suffix}" || dnsDomainIs(host, ".{suffix}"))"#
+                )]
+            }
+            RouteRuleType::IpCidr => cidr_to_pac_condition(&rule.value).into_iter().collect(),
+            RouteRuleType::Port => port_to_pac_condition(&rule.value).into_iter().collect(),
+            RouteRuleType::Geosite => {
+                let category = geosite::normalize_category(&rule.value);
+                let matchers = if category == "CN" {
+                    Some(&self.geosite_cn)
+                } else {
+                    self.geosite_rules.get(&category)
+                };
+                matchers.map_or_else(Vec::new, |matchers| geosite_conditions(matchers))
+            }
+        };
+
+        conditions
+            .into_iter()
+            .map(|condition| PacRule {
+                action: rule.action,
+                condition,
+            })
+            .collect()
     }
 }
 
@@ -105,13 +199,43 @@ fn is_private_or_loopback(ip: IpAddr) -> bool {
     }
 }
 
-fn load_builtin_geosite_cn() -> Vec<String> {
-    include_str!("../data/geosite-cn.txt")
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_ascii_lowercase)
+fn geosite_conditions(matchers: &[geosite::GeositeMatcher]) -> Vec<String> {
+    matchers
+        .iter()
+        .take(MAX_PAC_GEOSITE_EXPANSION)
+        .filter_map(geosite::to_pac_expr)
         .collect()
+}
+
+fn cidr_to_pac_condition(value: &str) -> Option<String> {
+    let (ip, prefix) = value.split_once('/')?;
+    let prefix = prefix.parse::<u8>().ok()?;
+    if prefix > 32 {
+        return None;
+    }
+    let ip = ip.parse::<std::net::Ipv4Addr>().ok()?;
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
+    let network = u32::from(ip) & mask;
+    Some(format!(
+        r#"isInNet(dnsResolve(host), "{}", "{}")"#,
+        std::net::Ipv4Addr::from(network),
+        std::net::Ipv4Addr::from(mask)
+    ))
+}
+
+fn port_to_pac_condition(value: &str) -> Option<String> {
+    let port = value.parse::<u16>().ok()?;
+    Some(format!(
+        r#"/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\/:]+:{port}(\/|$)/.test(url)"#
+    ))
+}
+
+fn escape_js(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(test)]
@@ -152,5 +276,32 @@ mod tests {
             RouteAction::Direct
         );
         assert_eq!(router.decide_host("example.org").action, RouteAction::Proxy);
+    }
+
+    #[test]
+    fn geosite_google_rule_uses_loaded_category() {
+        let router = Router {
+            mode: RoutingMode::Auto,
+            default_action: RouteAction::Direct,
+            rules: vec![RouteRule {
+                kind: RouteRuleType::Geosite,
+                value: "google".into(),
+                action: RouteAction::Proxy,
+            }],
+            geosite_cn: vec![],
+            geosite_rules: HashMap::from([(
+                "GOOGLE".into(),
+                vec![geosite::GeositeMatcher::Domain {
+                    value: "google.com".into(),
+                    attrs: Vec::new(),
+                }],
+            )]),
+        };
+
+        assert_eq!(
+            router.decide_host("www.google.com").action,
+            RouteAction::Proxy
+        );
+        assert_eq!(router.decide_host("example.cn").action, RouteAction::Direct);
     }
 }

@@ -7,11 +7,11 @@ nodes:
   - id: http-1
     name: Example HTTP
     protocol: http
-    server: 192.168.122.4
-    port: 1081
+    server: http.example.com
+    port: 8080
     options:
-      username: 
-      password:
+      username: user
+      password: pass
 
   - id: socks-1
     name: Example SOCKS
@@ -36,8 +36,8 @@ nodes:
         host: example.com
 
 proxy:
-  http_listen: 127.0.0.1:1081
-  socks_listen: 127.0.0.1:1080
+  http_listen: 127.0.0.1:7890
+  socks_listen: 127.0.0.1:7891
 
 system:
   tray: true
@@ -54,11 +54,18 @@ pac:
 
 routing:
   mode: auto
-  default_action: proxy
+  default_action: direct
   geosite:
     enabled: true
+    path: data/dlc.dat
     auto_update: false
   rules:
+    - type: geosite
+      value: google
+      action: proxy
+    - type: geosite
+      value: google@ads
+      action: block
     - type: domain_suffix
       value: example.cn
       action: direct

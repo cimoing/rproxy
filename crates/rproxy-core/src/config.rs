@@ -178,6 +178,7 @@ pub struct GeositeConfig {
     pub enabled: bool,
     #[serde(default)]
     pub auto_update: bool,
+    pub path: Option<String>,
 }
 
 impl Default for GeositeConfig {
@@ -185,6 +186,7 @@ impl Default for GeositeConfig {
         Self {
             enabled: true,
             auto_update: false,
+            path: Some("data/dlc.dat".into()),
         }
     }
 }

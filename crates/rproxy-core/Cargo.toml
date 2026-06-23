@@ -9,6 +9,8 @@ rust-version.workspace = true
 [dependencies]
 base64.workspace = true
 directories.workspace = true
+prost.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true
 thiserror.workspace = true

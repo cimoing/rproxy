@@ -66,8 +66,15 @@ routing:
   default_action: proxy
   geosite:
     enabled: true
+    path: data/dlc.dat
     auto_update: false
   rules:
+    - type: geosite
+      value: google
+      action: proxy
+    - type: geosite
+      value: google@ads
+      action: block
     - type: domain_suffix
       value: example.cn
       action: direct
@@ -275,11 +282,20 @@ pac:
 - `enabled`：是否启用 PAC 服务。默认值为 `true`。
 - `listen`：PAC HTTP 服务监听地址。
 
-启用后，RProxy 会根据路由规则生成 PAC 内容，并提供本地访问地址，例如：
+启用后，RProxy 会根据当前路由模式和规则生成 PAC 内容，并提供本地访问地址，例如：
 
 ```text
 http://127.0.0.1:7892/proxy.pac
 ```
+
+PAC 生成规则：
+
+- `global_proxy`：PAC 默认返回本地 HTTP 代理。
+- `global_direct`：PAC 默认返回 `DIRECT`。
+- `auto`：只按 `routing.rules` 中的显式规则顺序生成判断条件，未命中时返回 `default_action`。
+- `domain`、`domain_suffix`、`ip_cidr`、`port` 会转换为 PAC 条件。
+- `geosite` 只有在 `routing.rules` 中显式配置时才会展开为从 `dlc.dat` 解析出的 domain、full、keyword、regexp 条件。
+- `block` 会返回不可达代理 `127.0.0.1:9`。
 
 ## 9. routing
 
@@ -292,7 +308,13 @@ routing:
   geosite:
     enabled: true
     auto_update: false
-  rules:
+rules:
+    - type: geosite
+      value: google
+      action: proxy
+    - type: geosite
+      value: google@ads
+      action: block
     - type: domain_suffix
       value: example.cn
       action: direct
@@ -319,15 +341,27 @@ routing:
 ```yaml
 geosite:
   enabled: true
+  path: data/dlc.dat
   auto_update: false
 ```
 
 字段说明：
 
-- `enabled`：是否启用内置 geosite 数据。
+- `enabled`：是否启用 geosite 数据。
+- `path`：geosite 数据文件路径。建议使用 `data/dlc.dat`。
 - `auto_update`：是否自动更新 geosite。阶段一固定建议为 `false`。
 
-阶段一内置 geosite 种子数据，暂不支持在线更新。
+geosite 数据使用 [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community) 生成的 `dlc.dat`。RProxy 会在运行时读取 `routing.geosite.path` 指向的文件，并按路由规则中的 `value` 加载对应分类，例如 `google` 会读取 `dlc.dat` 中的 `GOOGLE` 分类。
+
+RProxy 的运行时路由会额外加载 `CN` 分类作为默认直连参考。如果文件不存在、无法解析或没有 `CN` 分类，会回退到内置种子数据 `crates/rproxy-core/data/geosite-cn.txt`。PAC 生成不会自动展开这个隐式 `CN` 兜底；PAC 只展开 `routing.rules` 中显式声明的规则，并通过 `default_action` 提供最终兜底。
+
+`dlc.dat` 是二进制数据文件，默认不提交到 Git。建议放置在：
+
+```text
+data/dlc.dat
+```
+
+阶段一暂不支持在线更新，需要用户手动替换该文件。
 
 ### 9.4 rules
 
@@ -363,6 +397,9 @@ routing:
     - type: domain
       value: intranet.example.com
       action: direct
+    - type: geosite
+      value: google
+      action: proxy
     - type: domain_suffix
       value: example.cn
       action: direct
@@ -372,6 +409,35 @@ routing:
     - type: geosite
       value: cn
       action: direct
+```
+
+`geosite` 规则的 `value` 参照 v2fly/domain-list-community 的运行时语法：
+
+- `google`：匹配 `GOOGLE` 分类。
+- `geosite:google`：等价于 `google`。
+- `google@ads`：只匹配 `GOOGLE` 分类中带 `ads` 属性的条目。
+- `google@!ads` 或 `google@-ads`：匹配 `GOOGLE` 分类中不带 `ads` 属性的条目。
+
+`dlc.dat` 中的条目类型按以下规则处理：
+
+- `domain:`：域名后缀匹配，例如 `google.com` 可匹配 `www.google.com`。
+- `full:`：完整域名匹配。
+- `keyword:`：子串匹配。
+- `regexp:`：正则匹配。
+
+示例：
+
+```yaml
+rules:
+  - type: geosite
+    value: google
+    action: proxy
+  - type: geosite
+    value: google@ads
+    action: block
+  - type: geosite
+    value: cn
+    action: direct
 ```
 
 ## 10. 配置校验规则
