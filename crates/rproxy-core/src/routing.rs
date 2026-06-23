@@ -253,6 +253,7 @@ mod tests {
                 id: "default".into(),
                 name: "Default".into(),
                 enabled: true,
+                active_node: None,
             },
             nodes: vec![],
             proxy: ProxyConfig {

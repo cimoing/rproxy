@@ -303,6 +303,7 @@ profile:
   id: default
   name: Default
   enabled: true
+  active_node: node-1
 
 nodes:
   - id: node-1

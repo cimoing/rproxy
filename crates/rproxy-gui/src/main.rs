@@ -1,6 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use std::{env, path::PathBuf, sync::Arc};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use rproxy_core::{
@@ -24,13 +24,17 @@ fn main() -> anyhow::Result<()> {
     let config_path = default_config_path();
 
     ui.set_status("Ready".into());
+    ui.set_log_text("Ready".into());
     ui.set_running(false);
     ui.set_editor_open(false);
+    ui.set_settings_open(false);
+    ui.set_context_menu_open(false);
     ui.set_nodes(ModelRc::new(VecModel::from(Vec::<NodeRow>::new())));
 
     match runtime.block_on(service.load_or_create_config(&config_path)) {
         Ok(status) => {
             update_status(ui.as_weak(), UiStatus::from(status));
+            update_settings(ui.as_weak(), service.clone(), Arc::clone(&runtime));
             refresh_nodes(ui.as_weak(), service.clone(), Arc::clone(&runtime));
         }
         Err(error) => {
@@ -88,11 +92,11 @@ fn main() -> anyhow::Result<()> {
             let service = service.clone();
             runtime.spawn(async move {
                 let nodes = service.nodes().await;
-                let Some(node) = nodes.get(index as usize).cloned() else {
+                let Some(entry) = nodes.get(index as usize).cloned() else {
                     update_status(ui_weak, UiStatus::message("Node not found".into()));
                     return;
                 };
-                open_editor(ui_weak, index, node);
+                open_editor(ui_weak, index, entry.node);
             });
         });
     }
@@ -163,6 +167,140 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
+    {
+        let ui_weak = ui.as_weak();
+        let service = service.clone();
+        let runtime = Arc::clone(&runtime);
+        ui.on_open_settings(move || {
+            let ui_weak = ui_weak.clone();
+            let service = service.clone();
+            runtime.spawn(async move {
+                let settings = service.settings().await;
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let (Some(ui), Some(settings)) = (ui_weak.upgrade(), settings) {
+                        ui.set_edit_pac_enabled(settings.pac_enabled);
+                        ui.set_edit_auto_start(settings.auto_start);
+                        ui.set_edit_http_listen(settings.http_listen.to_string().into());
+                        ui.set_edit_socks_listen(settings.socks_listen.to_string().into());
+                        ui.set_edit_pac_listen(settings.pac_listen.to_string().into());
+                        ui.set_settings_open(true);
+                    }
+                });
+            });
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        let service = service.clone();
+        let runtime = Arc::clone(&runtime);
+        ui.on_save_settings(
+            move |pac_enabled, auto_start, http_listen, socks_listen, pac_listen| {
+                let ui_weak = ui_weak.clone();
+                let service = service.clone();
+                runtime.spawn(async move {
+                    let http_listen = match parse_socket_addr(&http_listen, "HTTP listen") {
+                        Ok(value) => value,
+                        Err(error) => {
+                            update_status(ui_weak, UiStatus::message(error));
+                            return;
+                        }
+                    };
+                    let socks_listen = match parse_socket_addr(&socks_listen, "SOCKS listen") {
+                        Ok(value) => value,
+                        Err(error) => {
+                            update_status(ui_weak, UiStatus::message(error));
+                            return;
+                        }
+                    };
+                    let pac_listen = match parse_socket_addr(&pac_listen, "PAC listen") {
+                        Ok(value) => value,
+                        Err(error) => {
+                            update_status(ui_weak, UiStatus::message(error));
+                            return;
+                        }
+                    };
+
+                    match service
+                        .save_settings(
+                            pac_enabled,
+                            auto_start,
+                            http_listen,
+                            socks_listen,
+                            pac_listen,
+                        )
+                        .await
+                    {
+                        Ok(status) => {
+                            close_settings(ui_weak.clone());
+                            update_status(ui_weak, UiStatus::from(status));
+                        }
+                        Err(error) => {
+                            update_status(
+                                ui_weak,
+                                UiStatus::message(format!("Settings error: {error}")),
+                            );
+                        }
+                    }
+                });
+            },
+        );
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        let service = service.clone();
+        let runtime = Arc::clone(&runtime);
+        ui.on_activate_node(move |index| {
+            let ui_weak = ui_weak.clone();
+            let service = service.clone();
+            let runtime_for_refresh = Arc::clone(&runtime);
+            runtime.spawn(async move {
+                match service.set_active_node(index as usize).await {
+                    Ok(status) => {
+                        update_status(ui_weak.clone(), UiStatus::from(status));
+                        refresh_nodes(ui_weak, service, runtime_for_refresh);
+                    }
+                    Err(error) => {
+                        update_status(
+                            ui_weak,
+                            UiStatus::message(format!("Activate error: {error}")),
+                        );
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        let service = service.clone();
+        let runtime = Arc::clone(&runtime);
+        ui.on_delete_node(move |index| {
+            let ui_weak = ui_weak.clone();
+            let service = service.clone();
+            let runtime_for_refresh = Arc::clone(&runtime);
+            runtime.spawn(async move {
+                match service.delete_node(index as usize).await {
+                    Ok(status) => {
+                        update_status(ui_weak.clone(), UiStatus::from(status));
+                        refresh_nodes(ui_weak, service, runtime_for_refresh);
+                    }
+                    Err(error) => {
+                        update_status(ui_weak, UiStatus::message(format!("Delete error: {error}")));
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_cancel_settings(move || {
+            close_settings(ui_weak.clone());
+        });
+    }
+
     ui.run().context("failed to run UI")
 }
 
@@ -203,12 +341,25 @@ impl From<rproxy_core::AppStatus> for UiStatus {
 fn update_status(ui_weak: slint::Weak<MainWindow>, status: UiStatus) {
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(ui) = ui_weak.upgrade() {
-            ui.set_status(SharedString::from(status.message));
+            let message = status.message;
+            ui.set_status(SharedString::from(message.clone()));
+            append_log(&ui, &message);
             if let Some(running) = status.running {
                 ui.set_running(running);
             }
         }
     });
+}
+
+fn append_log(ui: &MainWindow, message: &str) {
+    let mut lines = ui
+        .get_log_text()
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    lines.push(message.to_string());
+    let keep_from = lines.len().saturating_sub(6);
+    ui.set_log_text(lines[keep_from..].join("\n").into());
 }
 
 fn refresh_nodes(ui_weak: slint::Weak<MainWindow>, service: AppService, runtime: Arc<Runtime>) {
@@ -218,17 +369,33 @@ fn refresh_nodes(ui_weak: slint::Weak<MainWindow>, service: AppService, runtime:
             .await
             .into_iter()
             .enumerate()
-            .map(|(index, node)| NodeRow {
+            .map(|(index, entry)| NodeRow {
                 index: index as i32,
-                name: node.name.into(),
-                server: node.server.into(),
-                protocol: protocol_label(&node.protocol).into(),
+                name: entry.node.name.into(),
+                server: entry.node.server.into(),
+                protocol: protocol_label(&entry.node.protocol).into(),
+                active: entry.active,
             })
             .collect::<Vec<_>>();
 
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_nodes(ModelRc::new(VecModel::from(rows)));
+            }
+        });
+    });
+}
+
+fn update_settings(ui_weak: slint::Weak<MainWindow>, service: AppService, runtime: Arc<Runtime>) {
+    runtime.spawn(async move {
+        let settings = service.settings().await;
+        let _ = slint::invoke_from_event_loop(move || {
+            if let (Some(ui), Some(settings)) = (ui_weak.upgrade(), settings) {
+                ui.set_edit_pac_enabled(settings.pac_enabled);
+                ui.set_edit_auto_start(settings.auto_start);
+                ui.set_edit_http_listen(settings.http_listen.to_string().into());
+                ui.set_edit_socks_listen(settings.socks_listen.to_string().into());
+                ui.set_edit_pac_listen(settings.pac_listen.to_string().into());
             }
         });
     });
@@ -288,6 +455,14 @@ fn close_editor(ui_weak: slint::Weak<MainWindow>) {
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(ui) = ui_weak.upgrade() {
             ui.set_editor_open(false);
+        }
+    });
+}
+
+fn close_settings(ui_weak: slint::Weak<MainWindow>) {
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            ui.set_settings_open(false);
         }
     });
 }
@@ -402,6 +577,13 @@ fn parse_transport(value: &str) -> Result<Option<Transport>, String> {
         "ws" | "websocket" => Ok(Some(Transport::WebSocket)),
         _ => Err("Transport must be tcp or websocket".into()),
     }
+}
+
+fn parse_socket_addr(value: &str, label: &str) -> Result<SocketAddr, String> {
+    value
+        .trim()
+        .parse()
+        .map_err(|_| format!("{label} must be a socket address like 127.0.0.1:7890"))
 }
 
 fn protocol_label(protocol: &Protocol) -> &'static str {

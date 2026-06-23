@@ -5,6 +5,7 @@ export struct NodeRow {
     name: string,
     server: string,
     protocol: string,
+    active: bool,
 }
 
 export component MainWindow inherits Window {
@@ -16,9 +17,16 @@ export component MainWindow inherits Window {
     default-font-size: 14px;
 
     in-out property <string> status;
+    in-out property <string> log-text;
     in-out property <bool> running;
     in-out property <[NodeRow]> nodes;
     in-out property <bool> editor-open;
+    in-out property <bool> settings-open;
+    in-out property <bool> edit-pac-enabled;
+    in-out property <bool> edit-auto-start;
+    in-out property <string> edit-http-listen;
+    in-out property <string> edit-socks-listen;
+    in-out property <string> edit-pac-listen;
     in-out property <int> edit-index: -1;
     in-out property <string> edit-title;
     in-out property <string> edit-name;
@@ -31,13 +39,23 @@ export component MainWindow inherits Window {
     in-out property <bool> edit-tls;
     in-out property <string> edit-transport;
     in-out property <string> edit-ws-path;
+    in-out property <bool> context-menu-open;
+    in-out property <int> context-node-index: -1;
+    in-out property <bool> context-node-active;
+    in-out property <length> context-menu-x;
+    in-out property <length> context-menu-y;
 
     callback toggle-proxy();
     callback open-pac(string);
     callback add-node();
     callback edit-node(int);
+    callback activate-node(int);
+    callback delete-node(int);
     callback save-node(int, string, string, string, string, string, string, string, bool, string, string);
     callback cancel-edit();
+    callback open-settings();
+    callback save-settings(bool, bool, string, string, string);
+    callback cancel-settings();
 
     property <brush> primary-text: Palette.foreground;
     property <brush> secondary-text: Palette.foreground;
@@ -92,6 +110,14 @@ export component MainWindow inherits Window {
                         root.open-pac("http://127.0.0.1:7892/proxy.pac");
                     }
                 }
+
+                Button {
+                    text: "设置";
+                    primary: false;
+                    clicked => {
+                        root.open-settings();
+                    }
+                }
             }
 
             Text {
@@ -108,7 +134,8 @@ export component MainWindow inherits Window {
                     padding-left: 8px;
                     padding-right: 8px;
 
-                    Text { text: "名称"; font-weight: 700; color: root.primary-text; width: 180px; }
+                    Text { text: "状态"; font-weight: 700; color: root.primary-text; width: 56px; }
+                    Text { text: "名称"; font-weight: 700; color: root.primary-text; width: 160px; }
                     Text { text: "域名"; font-weight: 700; color: root.primary-text; horizontal-stretch: 1; }
                     Text { text: "协议"; font-weight: 700; color: root.primary-text; width: 96px; }
                 }
@@ -119,7 +146,7 @@ export component MainWindow inherits Window {
                 }
 
                 ListView {
-                    height: 430px;
+                    height: 310px;
 
                     for node in root.nodes : Rectangle {
                         height: 44px;
@@ -130,7 +157,8 @@ export component MainWindow inherits Window {
                             padding-right: 8px;
                             spacing: 8px;
 
-                            Text { text: node.name; color: root.primary-text; width: 180px; vertical-alignment: center; }
+                            Text { text: node.active ? "活动" : ""; color: root.status-text; width: 56px; vertical-alignment: center; }
+                            Text { text: node.name; color: root.primary-text; width: 160px; vertical-alignment: center; }
                             Text { text: node.server; color: root.secondary-text; horizontal-stretch: 1; vertical-alignment: center; }
                             Text { text: node.protocol; color: root.primary-text; width: 96px; vertical-alignment: center; }
                         }
@@ -138,13 +166,88 @@ export component MainWindow inherits Window {
                         touch := TouchArea {
                             pointer-event(event) => {
                                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                                    root.edit-node(node.index);
+                                    root.context-node-index = node.index;
+                                    root.context-node-active = node.active;
+                                    root.context-menu-x = min(root.width - 168px, max(8px, self.absolute-position.x - root.absolute-position.x + touch.mouse-x));
+                                    root.context-menu-y = min(root.height - 136px, max(8px, self.absolute-position.y - root.absolute-position.y + touch.mouse-y));
+                                    root.context-menu-open = true;
                                 }
                             }
                             clicked => {
-                                root.edit-node(node.index);
+                                root.context-menu-open = false;
                             }
                         }
+                    }
+                }
+
+                Text {
+                    text: "运行日志";
+                    font-weight: 700;
+                    color: root.primary-text;
+                    vertical-stretch: 0;
+                }
+
+                Rectangle {
+                    height: 96px;
+                    background: root.row-background;
+                    border-color: root.border-color;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    Text {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 20px;
+                        height: parent.height - 16px;
+                        text: root.log-text;
+                        color: root.secondary-text;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            visible: root.context-menu-open && !root.editor-open && !root.settings-open;
+            x: root.context-menu-x;
+            y: root.context-menu-y;
+            width: 160px;
+            height: root.context-node-active ? 88px : 128px;
+            z: 100;
+            background: root.panel-background;
+            border-color: root.border-color;
+            border-width: 1px;
+            border-radius: 6px;
+
+            VerticalBox {
+                padding: 6px;
+                spacing: 4px;
+
+                Button {
+                    text: "编辑";
+                    height: 32px;
+                    clicked => {
+                        root.context-menu-open = false;
+                        root.edit-node(root.context-node-index);
+                    }
+                }
+
+                if !root.context-node-active : Button {
+                    text: "设为活动";
+                    height: 32px;
+                    clicked => {
+                        root.context-menu-open = false;
+                        root.activate-node(root.context-node-index);
+                    }
+                }
+
+                Button {
+                    text: "删除";
+                    height: 32px;
+                    clicked => {
+                        root.context-menu-open = false;
+                        root.delete-node(root.context-node-index);
                     }
                 }
             }
@@ -293,6 +396,102 @@ export component MainWindow inherits Window {
                             height: 36px;
                             clicked => {
                                 root.cancel-edit();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            visible: root.settings-open;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            background: #00000066;
+
+            Rectangle {
+                width: 460px;
+                height: 410px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.panel-background;
+                border-color: root.border-color;
+                border-width: 1px;
+                border-radius: 6px;
+
+                VerticalBox {
+                    padding: 20px;
+                    spacing: 14px;
+
+                    Text {
+                        text: "设置";
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: root.primary-text;
+                        vertical-stretch: 0;
+                    }
+
+                    CheckBox {
+                        text: "启用 PAC 系统代理";
+                        checked <=> root.edit-pac-enabled;
+                        vertical-stretch: 0;
+                    }
+
+                    CheckBox {
+                        text: "开机自启动";
+                        checked <=> root.edit-auto-start;
+                        vertical-stretch: 0;
+                    }
+                    
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        Text { text: "HTTP 监听"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        LineEdit { text <=> root.edit-http-listen; horizontal-stretch: 1; }
+                    }
+
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        Text { text: "SOCKS 监听"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        LineEdit { text <=> root.edit-socks-listen; horizontal-stretch: 1; }
+                    }
+
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        Text { text: "PAC 监听"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        LineEdit { text <=> root.edit-pac-listen; horizontal-stretch: 1; }
+                    }
+
+                    HorizontalBox {
+                        height: 44px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        alignment: center;
+
+                        Button {
+                            text: "保存";
+                            primary: true;
+                            width: 88px;
+                            height: 36px;
+                            clicked => {
+                                root.save-settings(root.edit-pac-enabled, root.edit-auto-start, root.edit-http-listen, root.edit-socks-listen, root.edit-pac-listen);
+                            }
+                        }
+
+                        Button {
+                            text: "取消";
+                            primary: false;
+                            width: 88px;
+                            height: 36px;
+                            clicked => {
+                                root.cancel-settings();
                             }
                         }
                     }

@@ -5,13 +5,25 @@ use std::net::SocketAddr;
 mod windows;
 
 #[cfg(windows)]
-pub use windows::{Autostart, SystemProxy, Tray};
+pub use windows::{Autostart, SystemProxy, SystemProxySnapshot, Tray};
 
 #[cfg(not(windows))]
 pub struct SystemProxy;
 
 #[cfg(not(windows))]
+#[derive(Debug, Clone)]
+pub struct SystemProxySnapshot;
+
+#[cfg(not(windows))]
 impl SystemProxy {
+    pub fn snapshot() -> std::io::Result<SystemProxySnapshot> {
+        Ok(SystemProxySnapshot)
+    }
+
+    pub fn restore(_snapshot: &SystemProxySnapshot) -> std::io::Result<()> {
+        Ok(())
+    }
+
     pub fn enable_http(_addr: SocketAddr) -> std::io::Result<()> {
         Ok(())
     }

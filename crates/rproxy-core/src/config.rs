@@ -1,4 +1,4 @@
-use std::{fs, net::SocketAddr, path::Path};
+use std::{collections::HashSet, fs, net::SocketAddr, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +34,7 @@ pub struct ProfileConfig {
     pub name: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    pub active_node: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,6 +258,7 @@ impl Config {
                 id: "default".into(),
                 name: "Default".into(),
                 enabled: true,
+                active_node: None,
             },
             nodes: Vec::new(),
             proxy: ProxyConfig {
@@ -277,7 +279,17 @@ impl Config {
             return Err(ConfigError::Validation("profile.id is required".into()));
         }
 
+        let mut node_ids = HashSet::new();
         for node in &self.nodes {
+            if node.id.trim().is_empty() {
+                return Err(ConfigError::Validation("node id is required".into()));
+            }
+            if !node_ids.insert(node.id.as_str()) {
+                return Err(ConfigError::Validation(format!(
+                    "node {} id is duplicated",
+                    node.id
+                )));
+            }
             if node.server.trim().is_empty() {
                 return Err(ConfigError::Validation(format!(
                     "node {} server is required",
@@ -313,11 +325,23 @@ impl Config {
             }
         }
 
+        if let Some(active_node) = self.profile.active_node.as_deref() {
+            if !self.nodes.iter().any(|node| node.id == active_node) {
+                return Err(ConfigError::Validation(format!(
+                    "profile.active_node {active_node} does not exist"
+                )));
+            }
+        }
+
         Ok(())
     }
 
     pub fn active_node(&self) -> Option<&NodeConfig> {
-        self.nodes.first()
+        self.profile
+            .active_node
+            .as_deref()
+            .and_then(|id| self.nodes.iter().find(|node| node.id == id))
+            .or_else(|| self.nodes.first())
     }
 }
 

@@ -11,6 +11,7 @@ profile:
   id: default
   name: Default
   enabled: true
+  active_node: vmess-1
 
 nodes:
   - id: http-1
@@ -113,6 +114,7 @@ profile:
 - `id`：配置唯一标识。必填，不应为空。
 - `name`：配置显示名称。必填。
 - `enabled`：配置是否启用。默认值为 `true`。
+- `active_node`：当前活动节点 ID。可选；为空时默认使用 `nodes` 中第一个节点。
 
 阶段一为单配置模式。阶段二会在多配置管理中使用 `id` 和 `name` 进行配置索引和切换。
 
@@ -469,7 +471,8 @@ rules:
 
 建议额外遵守：
 
-- 节点 `id` 在同一配置内保持唯一。
+- 节点 `id` 在同一配置内必须唯一。
+- `profile.active_node` 如果配置，必须指向已有节点 ID。
 - 本地监听端口不要与其他程序冲突。
 - 敏感信息不要提交到公开仓库。
 - PAC 服务和本地代理默认监听 `127.0.0.1`。
