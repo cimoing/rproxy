@@ -7,10 +7,10 @@ export component MainWindow inherits Window {
 
     in-out property <string> config-path;
     in-out property <string> status;
+    in-out property <bool> running;
 
     callback load-config(string);
-    callback start-proxy();
-    callback stop-proxy();
+    callback toggle-proxy();
     callback open-pac(string);
 
     VerticalBox {
@@ -47,16 +47,9 @@ export component MainWindow inherits Window {
             spacing: 8px;
 
             Button {
-                text: "启动代理";
+                text: root.running ? "停止代理" : "启动代理";
                 clicked => {
-                    root.start-proxy();
-                }
-            }
-
-            Button {
-                text: "停止代理";
-                clicked => {
-                    root.stop-proxy();
+                    root.toggle-proxy();
                 }
             }
 

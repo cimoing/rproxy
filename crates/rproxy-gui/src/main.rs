@@ -19,6 +19,7 @@ fn main() -> anyhow::Result<()> {
 
     ui.set_config_path(default_config_path().to_string_lossy().to_string().into());
     ui.set_status("Ready".into());
+    ui.set_running(false);
 
     {
         let ui_weak = ui.as_weak();
@@ -29,8 +30,8 @@ fn main() -> anyhow::Result<()> {
             let ui_weak = ui_weak.clone();
             runtime.spawn(async move {
                 let status = match service.load_config(path.as_str()).await {
-                    Ok(status) => status.message,
-                    Err(error) => format!("Config error: {error}"),
+                    Ok(status) => UiStatus::from(status),
+                    Err(error) => UiStatus::message(format!("Config error: {error}")),
                 };
                 update_status(ui_weak, status);
             });
@@ -41,29 +42,20 @@ fn main() -> anyhow::Result<()> {
         let ui_weak = ui.as_weak();
         let service = service.clone();
         let runtime = Arc::clone(&runtime);
-        ui.on_start_proxy(move || {
+        ui.on_toggle_proxy(move || {
             let service = service.clone();
             let ui_weak = ui_weak.clone();
             runtime.spawn(async move {
-                let status = match service.start().await {
-                    Ok(status) => status.message,
-                    Err(error) => format!("Start error: {error}"),
+                let is_running = service.status().await.running;
+                let status = if is_running {
+                    UiStatus::from(service.stop().await)
+                } else {
+                    match service.start().await {
+                        Ok(status) => UiStatus::from(status),
+                        Err(error) => UiStatus::message(format!("Start error: {error}")),
+                    }
                 };
                 update_status(ui_weak, status);
-            });
-        });
-    }
-
-    {
-        let ui_weak = ui.as_weak();
-        let service = service.clone();
-        let runtime = Arc::clone(&runtime);
-        ui.on_stop_proxy(move || {
-            let service = service.clone();
-            let ui_weak = ui_weak.clone();
-            runtime.spawn(async move {
-                let status = service.stop().await;
-                update_status(ui_weak, status.message);
             });
         });
     }
@@ -79,10 +71,36 @@ fn default_config_path() -> PathBuf {
     PathBuf::from("examples/default.yaml")
 }
 
-fn update_status(ui_weak: slint::Weak<MainWindow>, status: String) {
+struct UiStatus {
+    message: String,
+    running: Option<bool>,
+}
+
+impl UiStatus {
+    fn message(message: String) -> Self {
+        Self {
+            message,
+            running: None,
+        }
+    }
+}
+
+impl From<rproxy_core::AppStatus> for UiStatus {
+    fn from(status: rproxy_core::AppStatus) -> Self {
+        Self {
+            message: status.message,
+            running: Some(status.running),
+        }
+    }
+}
+
+fn update_status(ui_weak: slint::Weak<MainWindow>, status: UiStatus) {
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(ui) = ui_weak.upgrade() {
-            ui.set_status(SharedString::from(status));
+            ui.set_status(SharedString::from(status.message));
+            if let Some(running) = status.running {
+                ui.set_running(running);
+            }
         }
     });
 }
