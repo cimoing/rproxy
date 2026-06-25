@@ -7,9 +7,11 @@ use rproxy_core::{
     config::{NodeConfig, NodeOptions, Protocol, Transport, WebSocketOptions},
     AppService,
 };
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{CloseRequestResponse, ComponentHandle, ModelRc, SharedString, VecModel};
 use tokio::runtime::Runtime;
 use tracing_subscriber::EnvFilter;
+
+mod tray;
 
 slint::include_modules!();
 
@@ -25,11 +27,26 @@ fn main() -> anyhow::Result<()> {
 
     ui.set_status("Ready".into());
     ui.set_log_text("Ready".into());
+    ui.set_pac_url("http://127.0.0.1:7892/proxy.pac".into());
     ui.set_running(false);
     ui.set_editor_open(false);
     ui.set_settings_open(false);
     ui.set_context_menu_open(false);
     ui.set_nodes(ModelRc::new(VecModel::from(Vec::<NodeRow>::new())));
+
+    let _tray = install_tray(&ui, service.clone(), Arc::clone(&runtime))?;
+    {
+        let ui_weak = ui.as_weak();
+        ui.window().on_close_requested(move || {
+            if ui_weak.upgrade().is_some() {
+                update_status(
+                    ui_weak.clone(),
+                    UiStatus::message("Window hidden to tray".into()),
+                );
+            }
+            CloseRequestResponse::HideWindow
+        });
+    }
 
     match runtime.block_on(service.load_or_create_config(&config_path)) {
         Ok(status) => {
@@ -50,17 +67,21 @@ fn main() -> anyhow::Result<()> {
         let service = service.clone();
         let runtime = Arc::clone(&runtime);
         ui.on_toggle_proxy(move || {
+            toggle_proxy(ui_weak.clone(), service.clone(), Arc::clone(&runtime));
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        let service = service.clone();
+        let runtime = Arc::clone(&runtime);
+        ui.on_restart_proxy(move || {
             let service = service.clone();
             let ui_weak = ui_weak.clone();
             runtime.spawn(async move {
-                let is_running = service.status().await.running;
-                let status = if is_running {
-                    UiStatus::from(service.stop().await)
-                } else {
-                    match service.start().await {
-                        Ok(status) => UiStatus::from(status),
-                        Err(error) => UiStatus::message(format!("Start error: {error}")),
-                    }
+                let status = match service.restart().await {
+                    Ok(status) => UiStatus::from(status),
+                    Err(error) => UiStatus::message(format!("Restart error: {error}")),
                 };
                 update_status(ui_weak, status);
             });
@@ -70,6 +91,18 @@ fn main() -> anyhow::Result<()> {
     ui.on_open_pac(move |url| {
         let _ = webbrowser::open(url.as_str());
     });
+
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_clear_log(move || {
+            let ui_weak = ui_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_log_text("".into());
+                }
+            });
+        });
+    }
 
     {
         let ui_weak = ui.as_weak();
@@ -198,6 +231,7 @@ fn main() -> anyhow::Result<()> {
             move |pac_enabled, auto_start, http_listen, socks_listen, pac_listen| {
                 let ui_weak = ui_weak.clone();
                 let service = service.clone();
+                let runtime_for_settings = Arc::clone(&runtime);
                 runtime.spawn(async move {
                     let http_listen = match parse_socket_addr(&http_listen, "HTTP listen") {
                         Ok(value) => value,
@@ -233,7 +267,8 @@ fn main() -> anyhow::Result<()> {
                     {
                         Ok(status) => {
                             close_settings(ui_weak.clone());
-                            update_status(ui_weak, UiStatus::from(status));
+                            update_status(ui_weak.clone(), UiStatus::from(status));
+                            update_settings(ui_weak, service, runtime_for_settings);
                         }
                         Err(error) => {
                             update_status(
@@ -302,6 +337,66 @@ fn main() -> anyhow::Result<()> {
     }
 
     ui.run().context("failed to run UI")
+}
+
+fn install_tray(
+    ui: &MainWindow,
+    service: AppService,
+    runtime: Arc<Runtime>,
+) -> anyhow::Result<tray::TrayHandle> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let tray = tray::TrayHandle::new(sender).context("failed to create system tray")?;
+    let ui_weak = ui.as_weak();
+
+    std::thread::spawn(move || {
+        while let Ok(event) = receiver.recv() {
+            let ui_weak = ui_weak.clone();
+            let service = service.clone();
+            let runtime = Arc::clone(&runtime);
+            let _ = slint::invoke_from_event_loop(move || match event {
+                tray::TrayEvent::ShowWindow => {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        let _ = ui.window().show();
+                        update_status(ui_weak.clone(), UiStatus::message("Window shown".into()));
+                    }
+                }
+                tray::TrayEvent::ToggleProxy => {
+                    toggle_proxy(ui_weak, service, runtime);
+                }
+                tray::TrayEvent::OpenPac => {
+                    if let Some(ui) = ui_weak.upgrade() {
+                        let _ = webbrowser::open(ui.get_pac_url().as_str());
+                    }
+                }
+                tray::TrayEvent::Quit => {
+                    runtime.spawn(async move {
+                        let status = service.stop().await;
+                        update_status(ui_weak.clone(), UiStatus::from(status));
+                        let _ = slint::invoke_from_event_loop(|| {
+                            let _ = slint::quit_event_loop();
+                        });
+                    });
+                }
+            });
+        }
+    });
+
+    Ok(tray)
+}
+
+fn toggle_proxy(ui_weak: slint::Weak<MainWindow>, service: AppService, runtime: Arc<Runtime>) {
+    runtime.spawn(async move {
+        let is_running = service.status().await.running;
+        let status = if is_running {
+            UiStatus::from(service.stop().await)
+        } else {
+            match service.start().await {
+                Ok(status) => UiStatus::from(status),
+                Err(error) => UiStatus::message(format!("Start error: {error}")),
+            }
+        };
+        update_status(ui_weak, status);
+    });
 }
 
 fn default_config_path() -> PathBuf {
@@ -396,6 +491,7 @@ fn update_settings(ui_weak: slint::Weak<MainWindow>, service: AppService, runtim
                 ui.set_edit_http_listen(settings.http_listen.to_string().into());
                 ui.set_edit_socks_listen(settings.socks_listen.to_string().into());
                 ui.set_edit_pac_listen(settings.pac_listen.to_string().into());
+                ui.set_pac_url(format!("http://{}/proxy.pac", settings.pac_listen).into());
             }
         });
     });

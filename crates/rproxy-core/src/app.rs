@@ -273,13 +273,16 @@ impl AppService {
 
     pub async fn stop(&self) -> AppStatus {
         let mut state = self.inner.lock().await;
+        let was_running = state.runtime.is_some() || state.status.running;
         if let Some(mut runtime) = state.runtime.take() {
             runtime.stop().await;
         }
-        if let Some(snapshot) = state.system_proxy_snapshot.take() {
-            let _ = SystemProxy::restore(&snapshot);
-        } else {
-            let _ = SystemProxy::disable();
+        if was_running {
+            if let Some(snapshot) = state.system_proxy_snapshot.take() {
+                let _ = SystemProxy::restore(&snapshot);
+            } else {
+                let _ = SystemProxy::disable();
+            }
         }
         state.status = AppStatus {
             running: false,
@@ -287,6 +290,16 @@ impl AppService {
             runtime: None,
         };
         state.status.clone()
+    }
+
+    pub async fn restart(&self) -> Result<AppStatus, AppError> {
+        let _ = self.stop().await;
+        let mut status = self.start().await?;
+        status.message = "Proxy restarted".into();
+
+        let mut state = self.inner.lock().await;
+        state.status.message = status.message.clone();
+        Ok(state.status.clone())
     }
 
     pub async fn status(&self) -> AppStatus {

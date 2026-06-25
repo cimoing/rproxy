@@ -14,7 +14,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 webbrowser.workspace = true
+windows-sys.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true
-

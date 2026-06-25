@@ -46,6 +46,12 @@ url = "2"
 uuid = "1"
 webbrowser = "1"
 webpki-roots = "0.26"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 winreg = "0.52"
 
 [profile.release]

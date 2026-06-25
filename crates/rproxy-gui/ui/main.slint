@@ -18,6 +18,7 @@ export component MainWindow inherits Window {
 
     in-out property <string> status;
     in-out property <string> log-text;
+    in-out property <string> pac-url;
     in-out property <bool> running;
     in-out property <[NodeRow]> nodes;
     in-out property <bool> editor-open;
@@ -46,6 +47,7 @@ export component MainWindow inherits Window {
     in-out property <length> context-menu-y;
 
     callback toggle-proxy();
+    callback restart-proxy();
     callback open-pac(string);
     callback add-node();
     callback edit-node(int);
@@ -56,6 +58,7 @@ export component MainWindow inherits Window {
     callback open-settings();
     callback save-settings(bool, bool, string, string, string);
     callback cancel-settings();
+    callback clear-log();
 
     property <brush> primary-text: Palette.foreground;
     property <brush> secondary-text: Palette.foreground;
@@ -104,10 +107,19 @@ export component MainWindow inherits Window {
                 }
 
                 Button {
+                    text: "重启";
+                    enabled: root.running;
+                    primary: false;
+                    clicked => {
+                        root.restart-proxy();
+                    }
+                }
+
+                Button {
                     text: "打开 PAC";
                     primary: false;
                     clicked => {
-                        root.open-pac("http://127.0.0.1:7892/proxy.pac");
+                        root.open-pac(root.pac-url);
                     }
                 }
 
@@ -180,11 +192,25 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                Text {
-                    text: "运行日志";
-                    font-weight: 700;
-                    color: root.primary-text;
-                    vertical-stretch: 0;
+                HorizontalBox {
+                    height: 32px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "运行日志";
+                        font-weight: 700;
+                        color: root.primary-text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+
+                    Button {
+                        text: "清空";
+                        height: 30px;
+                        clicked => {
+                            root.clear-log();
+                        }
+                    }
                 }
 
                 Rectangle {
