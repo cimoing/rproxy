@@ -40,6 +40,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-rustls = "0.26"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+tray-icon = "0.24.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"

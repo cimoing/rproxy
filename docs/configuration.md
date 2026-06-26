@@ -308,7 +308,7 @@ system:
 
 字段说明：
 
-- `tray`：是否启用系统托盘。默认值为 `true`。当前托盘能力主要支持 Windows，Linux 桌面托盘后续补齐。
+- `tray`：是否启用系统托盘。默认值为 `true`。Windows 使用原生托盘；Linux 使用 GTK 与 AppIndicator/StatusNotifier 托盘。
 - `auto_start`：是否开机自启动。默认值为 `false`。
 
 Windows 开机自启动通过当前用户启动项配置实现。Linux 使用 XDG Autostart，在 `$XDG_CONFIG_HOME/autostart/rproxy.desktop` 或 `~/.config/autostart/rproxy.desktop` 中写入启动项。
@@ -317,6 +317,8 @@ Linux 系统代理当前优先适配：
 
 - GNOME：通过 `gsettings` 写入和恢复 `org.gnome.system.proxy`。
 - Plasma：通过 `kwriteconfig6`、`kwriteconfig5` 或 `kwriteconfig` 写入 `kioslaverc`，并尽量通知 KIO 重新加载代理配置。
+
+Linux 托盘构建和运行需要桌面环境提供 GTK3、libxdo、libappindicator 或 Ayatana AppIndicator。GNOME 通常还需要启用 AppIndicator/StatusNotifier 扩展才能显示托盘图标；Plasma 默认支持 StatusNotifier。
 
 ## 7. tun
 

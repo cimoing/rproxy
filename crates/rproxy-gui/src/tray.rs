@@ -274,7 +274,157 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::TrayEvent;
+    use std::{
+        io,
+        sync::mpsc::{self, Sender},
+        thread::{self, JoinHandle},
+        time::Duration,
+    };
+    use tray_icon::{
+        menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+        Icon, TrayIcon, TrayIconBuilder,
+    };
+
+    const CMD_SHOW: &str = "show";
+    const CMD_TOGGLE: &str = "toggle";
+    const CMD_OPEN_PAC: &str = "open-pac";
+    const CMD_QUIT: &str = "quit";
+
+    enum ControlEvent {
+        Quit,
+    }
+
+    pub struct TrayHandle {
+        control_sender: Sender<ControlEvent>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl TrayHandle {
+        pub fn new(sender: Sender<TrayEvent>) -> io::Result<Self> {
+            let (startup_tx, startup_rx) = mpsc::channel();
+            let (control_sender, control_receiver) = mpsc::channel();
+            let thread = thread::spawn(move || match run_tray(sender, control_receiver) {
+                Ok(_tray_icon) => {
+                    let _ = startup_tx.send(Ok(()));
+                    gtk::main();
+                    MenuEvent::set_event_handler(None::<fn(MenuEvent)>);
+                }
+                Err(error) => {
+                    let _ = startup_tx.send(Err(error));
+                }
+            });
+
+            match startup_rx
+                .recv()
+                .map_err(|_| io::Error::other("tray thread exited during startup"))?
+            {
+                Ok(()) => Ok(Self {
+                    control_sender,
+                    thread: Some(thread),
+                }),
+                Err(error) => {
+                    let _ = thread.join();
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    impl Drop for TrayHandle {
+        fn drop(&mut self) {
+            let _ = self.control_sender.send(ControlEvent::Quit);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
+
+    fn run_tray(
+        sender: Sender<TrayEvent>,
+        control_receiver: mpsc::Receiver<ControlEvent>,
+    ) -> io::Result<TrayIcon> {
+        gtk::init()
+            .map_err(|error| io::Error::other(format!("failed to initialize gtk: {error}")))?;
+
+        let show = MenuItem::with_id(CMD_SHOW, "显示主窗口", true, None);
+        let toggle = MenuItem::with_id(CMD_TOGGLE, "启动/停止代理", true, None);
+        let open_pac = MenuItem::with_id(CMD_OPEN_PAC, "打开 PAC", true, None);
+        let quit = MenuItem::with_id(CMD_QUIT, "退出", true, None);
+        let separator = PredefinedMenuItem::separator();
+        let menu = Menu::new();
+        menu.append_items(&[&show, &toggle, &open_pac, &separator, &quit])
+            .map_err(|error| io::Error::other(format!("failed to create tray menu: {error}")))?;
+
+        MenuEvent::set_event_handler(Some(move |event| {
+            let event = match event.id().as_ref() {
+                CMD_SHOW => Some(TrayEvent::ShowWindow),
+                CMD_TOGGLE => Some(TrayEvent::ToggleProxy),
+                CMD_OPEN_PAC => Some(TrayEvent::OpenPac),
+                CMD_QUIT => Some(TrayEvent::Quit),
+                _ => None,
+            };
+            if let Some(event) = event {
+                let _ = sender.send(event);
+            }
+        }));
+
+        gtk::glib::timeout_add_local(Duration::from_millis(100), move || {
+            match control_receiver.try_recv() {
+                Ok(ControlEvent::Quit) | Err(mpsc::TryRecvError::Disconnected) => {
+                    gtk::main_quit();
+                    gtk::glib::ControlFlow::Break
+                }
+                Err(mpsc::TryRecvError::Empty) => gtk::glib::ControlFlow::Continue,
+            }
+        });
+
+        TrayIconBuilder::new()
+            .with_id("rproxy")
+            .with_tooltip("RProxy")
+            .with_menu(Box::new(menu))
+            .with_icon(app_icon()?)
+            .build()
+            .map_err(|error| io::Error::other(format!("failed to create tray icon: {error}")))
+    }
+
+    fn app_icon() -> io::Result<Icon> {
+        let size = 32;
+        let mut rgba = Vec::with_capacity(size * size * 4);
+        for y in 0..size {
+            for x in 0..size {
+                let dx = x as f32 - 15.5;
+                let dy = y as f32 - 15.5;
+                let distance = (dx * dx + dy * dy).sqrt();
+                if distance > 15.0 {
+                    rgba.extend_from_slice(&[0, 0, 0, 0]);
+                } else {
+                    let edge = if distance > 12.5 { 220 } else { 255 };
+                    rgba.extend_from_slice(&[26, 150, 220, edge]);
+                }
+            }
+        }
+
+        for y in 9..23 {
+            for x in 10..22 {
+                let index = (y * size + x) * 4;
+                if x < 13 || (y < 12 && x < 20) || (13..16).contains(&y) || (x > 17 && y > 15) {
+                    rgba[index] = 255;
+                    rgba[index + 1] = 255;
+                    rgba[index + 2] = 255;
+                    rgba[index + 3] = 255;
+                }
+            }
+        }
+
+        Icon::from_rgba(rgba, size as u32, size as u32)
+            .map_err(|error| io::Error::other(format!("failed to create tray icon image: {error}")))
+    }
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 mod platform {
     use super::TrayEvent;
     use std::{io, sync::mpsc::Sender};
