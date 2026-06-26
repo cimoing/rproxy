@@ -1,5 +1,5 @@
 use std::{
-    env, io,
+    env, fs, io,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -17,15 +17,10 @@ use crate::{
 
 #[cfg(windows)]
 const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
-#[cfg(target_os = "linux")]
-const TUN_PREFIX: &str = "198.18.0.1/15";
 const TUN_DNS: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
-#[cfg(windows)]
-const TUN_NETMASK: &str = "255.254.0.0";
 const DIRECT_DNS_UPSTREAM: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(223, 5, 5, 5)), 53);
-const PROXY_DNS_UPSTREAM: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+const PROXY_DNS_UPSTREAM: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
 const DIRECT_DNS_ROUTE_IPS: &[Ipv4Addr] = &[Ipv4Addr::new(223, 5, 5, 5)];
 const PROXY_DNS_ROUTE_IPS: &[Ipv4Addr] = &[
     Ipv4Addr::new(8, 8, 8, 8),
@@ -46,8 +41,8 @@ pub struct TunStatus {
 
 #[derive(Debug, thiserror::Error)]
 pub enum TunError {
-    #[error("tun2socks executable was not found; set RPROXY_TUN2SOCKS or add tun2socks to PATH")]
-    Tun2SocksNotFound,
+    #[error("hev-socks5-tunnel executable was not found; set RPROXY_HEV_SOCKS5_TUNNEL or add hev-socks5-tunnel to PATH")]
+    HevSocks5TunnelNotFound,
     #[error("Tun mode requires an active outbound node")]
     MissingActiveNode,
     #[error("failed to resolve active node {0}")]
@@ -65,6 +60,7 @@ pub struct TunRuntime {
     route_guard: Option<RouteGuard>,
     dns: Option<DnsRuntime>,
     child: Option<Child>,
+    config_path: Option<PathBuf>,
 }
 
 struct RouteGuard {
@@ -87,29 +83,39 @@ impl TunRuntime {
         let active_node = config.active_node().ok_or(TunError::MissingActiveNode)?;
         let node_ip = resolve_node_ip(active_node)?;
         let interface_name = config.tun.interface_name.clone();
-        let tun2socks = find_tun2socks().ok_or(TunError::Tun2SocksNotFound)?;
-        let proxy_uri = socks_proxy_uri(config.proxy.socks_listen);
+        let tunnel = find_hev_socks5_tunnel().ok_or(TunError::HevSocks5TunnelNotFound)?;
+        let tunnel_config_path = write_hev_config(&interface_name, config.proxy.socks_listen)?;
 
-        let mut child = Command::new(&tun2socks)
-            .args([
-                "-device",
-                &format!("tun://{interface_name}"),
-                "-proxy",
-                &proxy_uri,
-            ])
+        let mut child = match Command::new(&tunnel)
+            .arg(&tunnel_config_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|error| {
-                TunError::Command(format!("failed to start {}: {error}", tun2socks.display()))
-            })?;
+        {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = fs::remove_file(&tunnel_config_path);
+                return Err(TunError::Command(format!(
+                    "failed to start {}: {error}",
+                    tunnel.display()
+                )));
+            }
+        };
 
         thread::sleep(Duration::from_millis(500));
-        if let Some(status) = child.try_wait()? {
-            return Err(TunError::Command(format!(
-                "tun2socks exited during startup with status {status}"
-            )));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let _ = fs::remove_file(&tunnel_config_path);
+                return Err(TunError::Command(format!(
+                    "hev-socks5-tunnel exited during startup with status {status}"
+                )));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let _ = fs::remove_file(&tunnel_config_path);
+                return Err(TunError::Io(error));
+            }
         }
 
         let mut route_guard = if config.tun.auto_route {
@@ -118,6 +124,7 @@ impl TunRuntime {
                 Err(error) => {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = fs::remove_file(&tunnel_config_path);
                     return Err(error);
                 }
             }
@@ -143,6 +150,7 @@ impl TunRuntime {
                 Err(error) => {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = fs::remove_file(&tunnel_config_path);
                     if let Some(guard) = route_guard.take() {
                         guard.restore();
                     }
@@ -155,7 +163,7 @@ impl TunRuntime {
 
         info!(
             interface = %interface_name,
-            proxy = %proxy_uri,
+            socks = %config.proxy.socks_listen,
             node = %active_node.server,
             "Tun mode started"
         );
@@ -165,6 +173,7 @@ impl TunRuntime {
             route_guard,
             dns,
             child: Some(child),
+            config_path: Some(tunnel_config_path),
         }))
     }
 
@@ -187,9 +196,14 @@ impl TunRuntime {
         }
         if let Some(mut child) = self.child.take() {
             if let Err(error) = child.kill() {
-                warn!(%error, "failed to stop tun2socks process");
+                warn!(%error, "failed to stop hev-socks5-tunnel process");
             }
             let _ = child.wait();
+        }
+        if let Some(config_path) = self.config_path.take() {
+            if let Err(error) = fs::remove_file(&config_path) {
+                warn!(%error, path = %config_path.display(), "failed to remove HevSocks5Tunnel config");
+            }
         }
         info!(interface = %self.interface_name, "Tun mode stopped");
     }
@@ -246,10 +260,6 @@ impl DnsRuntime {
         }
         info!("Tun DNS proxy stopped");
     }
-}
-
-fn socks_proxy_uri(listen: SocketAddr) -> String {
-    format!("socks5://{listen}")
 }
 
 fn resolve_dns_query(
@@ -457,11 +467,47 @@ fn resolve_node_ip(node: &NodeConfig) -> Result<IpAddr, TunError> {
         .ok_or_else(|| TunError::ResolveNode(node.server.clone()))
 }
 
-fn find_tun2socks() -> Option<PathBuf> {
-    env::var_os("RPROXY_TUN2SOCKS")
+fn write_hev_config(interface_name: &str, socks_listen: SocketAddr) -> Result<PathBuf, TunError> {
+    let file_name = format!(
+        "rproxy-hev-socks5-tunnel-{}-{}.yml",
+        std::process::id(),
+        sanitize_file_name(interface_name)
+    );
+    let path = env::temp_dir().join(file_name);
+    let config = format!(
+        "tunnel:\n  name: {}\n  mtu: 8500\n  multi-queue: false\n  ipv4: {}\nsocks5:\n  address: {}\n  port: {}\n  udp: 'tcp'\nmisc:\n  log-file: stderr\n  log-level: warn\n",
+        yaml_quote(interface_name),
+        yaml_quote(&TUN_DNS.to_string()),
+        yaml_quote(&socks_listen.ip().to_string()),
+        socks_listen.port()
+    );
+    fs::write(&path, config)?;
+    Ok(path)
+}
+
+fn sanitize_file_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn yaml_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn find_hev_socks5_tunnel() -> Option<PathBuf> {
+    env::var_os("RPROXY_HEV_SOCKS5_TUNNEL")
         .map(PathBuf::from)
         .filter(|path| path.is_file())
-        .or_else(|| find_in_path(executable_name("tun2socks")))
+        .or_else(|| find_in_path(executable_name("hev-socks5-tunnel")))
+        .or_else(|| find_in_path(executable_name("hev-socks5-tunnel-main")))
 }
 
 fn executable_name(name: &str) -> String {
@@ -504,7 +550,6 @@ fn run_command(program: &str, args: &[&str]) -> Result<String, TunError> {
 #[cfg(target_os = "linux")]
 fn configure_routes(interface_name: &str, node_ip: IpAddr) -> Result<RouteGuard, TunError> {
     let default_route = linux_default_route()?;
-    run_command("ip", &["addr", "add", TUN_PREFIX, "dev", interface_name])?;
     run_command("ip", &["link", "set", "dev", interface_name, "up"])?;
 
     if let IpAddr::V4(ip) = node_ip {
@@ -685,20 +730,8 @@ fn parse_linux_default_route(output: &str) -> Option<LinuxDefaultRoute> {
 
 #[cfg(windows)]
 fn configure_routes(interface_name: &str, node_ip: IpAddr) -> Result<RouteGuard, TunError> {
+    let _ = interface_name;
     let default_route = windows_default_route()?;
-    run_command(
-        "netsh",
-        &[
-            "interface",
-            "ipv4",
-            "set",
-            "address",
-            &format!("name={interface_name}"),
-            "static",
-            &TUN_ADDR.to_string(),
-            TUN_NETMASK,
-        ],
-    )?;
 
     if let IpAddr::V4(ip) = node_ip {
         run_command(
@@ -749,24 +782,13 @@ fn configure_routes(interface_name: &str, node_ip: IpAddr) -> Result<RouteGuard,
 
 #[cfg(windows)]
 fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured: bool) {
-    let _ = dns_configured;
+    let _ = (interface_name, dns_configured);
     let _ = run_command("route", &["delete", "0.0.0.0", "mask", "128.0.0.0"]);
     let _ = run_command("route", &["delete", "128.0.0.0", "mask", "128.0.0.0"]);
     if let Some(IpAddr::V4(ip)) = node_ip {
         let _ = run_command("route", &["delete", &ip.to_string()]);
     }
     cleanup_windows_dns_routes();
-    let _ = run_command(
-        "netsh",
-        &[
-            "interface",
-            "ipv4",
-            "delete",
-            "address",
-            &format!("name={interface_name}"),
-            &TUN_ADDR.to_string(),
-        ],
-    );
 }
 
 #[cfg(windows)]
@@ -883,7 +905,10 @@ mod tests {
             0x00, 0x00, 0x01, 0x00, 0x01,
         ];
 
-        assert_eq!(super::dns_query_name(&query).as_deref(), Some("www.example.com"));
+        assert_eq!(
+            super::dns_query_name(&query).as_deref(),
+            Some("www.example.com")
+        );
     }
 
     #[cfg(windows)]

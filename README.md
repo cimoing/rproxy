@@ -13,12 +13,12 @@ Current focus:
 - PAC generation and local PAC serving.
 - Windows system proxy, tray, and autostart integration.
 - Linux GNOME/Plasma system proxy, tray, and XDG autostart integration.
-- Tun mode via a managed `tun2socks` process.
+- Tun mode via a managed `hev-socks5-tunnel` process.
 
 Linux tray support uses GTK and AppIndicator. Install the desktop development packages before
 building on Linux, for example `libgtk-3-dev libxdo-dev libappindicator3-dev` on Debian/Ubuntu.
 
-Tun mode requires `tun2socks` in `PATH`, or set `RPROXY_TUN2SOCKS` to the executable path. It also
+Tun mode requires `hev-socks5-tunnel` in `PATH`, or set `RPROXY_HEV_SOCKS5_TUNNEL` to the executable path. It also
 requires administrator/root permissions to create the virtual interface and adjust routes.
 
 ## Run

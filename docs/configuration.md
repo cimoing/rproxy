@@ -322,7 +322,7 @@ Linux 托盘构建和运行需要桌面环境提供 GTK3、libxdo、libappindica
 
 ## 7. tun
 
-`tun` 配置 Tun 模式。当前实现通过托管外部 `tun2socks` 进程接管系统流量，并把透明流量送入 RProxy 本地 SOCKS 入口。
+`tun` 配置 Tun 模式。当前实现通过托管外部 `hev-socks5-tunnel` 进程接管系统流量，并把透明流量送入 RProxy 本地 SOCKS 入口。
 
 ```yaml
 tun:
@@ -339,7 +339,7 @@ tun:
 
 启用 Tun 前需要：
 
-- 安装 `tun2socks`，并确保可在 `PATH` 中找到；也可以通过环境变量 `RPROXY_TUN2SOCKS` 指向可执行文件。
+- 安装 `hev-socks5-tunnel`，并确保可在 `PATH` 中找到；也可以通过环境变量 `RPROXY_HEV_SOCKS5_TUNNEL` 指向可执行文件。
 - Windows 以管理员身份运行，Linux 以 root 或具备网络管理权限的方式运行。
 - 至少配置并启用一个代理节点。
 
