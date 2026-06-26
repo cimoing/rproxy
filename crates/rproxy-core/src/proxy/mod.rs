@@ -17,7 +17,7 @@ use outbound::{
 use crate::{
     config::{Config, NodeConfig, RouteAction, RoutingMode},
     pac,
-    routing::Router,
+    routing::{RouteDecision, Router},
     tun::{TunError, TunRuntime, TunStatus},
 };
 
@@ -187,7 +187,7 @@ async fn start_http_listener(
                             let _ = write_http_error(&mut stream, 501, "Only CONNECT is supported").await;
                             return;
                         };
-                        let decision = router.decide_host(&target.host_for_routing());
+                        let decision = decide_target(&router, &target);
                         info!(%peer, target = %target, action = ?decision.action, reason = %decision.reason, "HTTP CONNECT routed");
 
                         if decision.action == RouteAction::Block {
@@ -270,7 +270,10 @@ async fn start_socks_listener(
                             }
                         };
 
-                        let decision = router.lock().await.decide_host(&target.host_for_routing());
+                        let decision = {
+                            let router = router.lock().await;
+                            decide_target(&router, &target)
+                        };
                         info!(%peer, target = %target, action = ?decision.action, reason = %decision.reason, "SOCKS request routed");
 
                         if decision.action == RouteAction::Block {
@@ -318,6 +321,13 @@ async fn connect_for_decision(
             connect_via_node(node, target).await
         }
         RouteAction::Block => unreachable!("block is handled before connect_for_decision"),
+    }
+}
+
+fn decide_target(router: &Router, target: &TargetAddr) -> RouteDecision {
+    match target {
+        TargetAddr::Domain { host, .. } => router.decide_host(host),
+        TargetAddr::Ip { ip, .. } => router.decide_ip(*ip),
     }
 }
 

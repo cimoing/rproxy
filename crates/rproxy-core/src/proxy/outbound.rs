@@ -96,13 +96,6 @@ impl TargetAddr {
         })
     }
 
-    pub fn host_for_routing(&self) -> String {
-        match self {
-            Self::Domain { host, .. } => host.clone(),
-            Self::Ip { ip, .. } => ip.to_string(),
-        }
-    }
-
     pub fn port(&self) -> u16 {
         match self {
             Self::Domain { port, .. } | Self::Ip { port, .. } => *port,

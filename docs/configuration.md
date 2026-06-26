@@ -343,9 +343,9 @@ tun:
 - Windows 以管理员身份运行，Linux 以 root 或具备网络管理权限的方式运行。
 - 至少配置并启用一个代理节点。
 
-当前 Tun 第一版以全局透明代理为目标：Tun 流量会统一进入本地 SOCKS 并转发到当前活动节点。为避免 RProxy 自己的直连出站流量再次进入 Tun 造成环路，Tun 启用时运行时会按全局代理模式处理 Tun 流量；基于路由规则的 Tun 分流会在后续版本扩展。
+当前 Tun 第一版以透明代理为目标：Tun 流量会统一进入本地 SOCKS 并转发到当前活动节点。为避免 RProxy 自己的直连出站流量再次进入 Tun 造成环路，Tun 启用时本地 SOCKS 入站仍按全局代理模式处理 Tun 流量；域名分流主要在 Tun DNS 代理中完成。
 
-Linux 下启用自动路由时，RProxy 会在 Tun 地址 `198.18.0.1:53` 启动一个本地 DNS 代理，并优先通过 `resolvectl`/`systemd-resolve`，其次通过 `nmcli` 尝试将 Tun 接口 DNS 指向该地址，避免域名先被局域网 DNS 污染后再进入 Tun。如果当前桌面没有启用 systemd-resolved，DNS 自动配置失败不会阻止 Tun 启动，但可能需要手动把系统 DNS 指到 `198.18.0.1`。当前 DNS 代理会通过本地 SOCKS 将 DNS 查询转发到 `8.8.8.8:53`，并暂时返回空 AAAA 结果以避免未配置 IPv6 Tun 路由时优先连接 IPv6 地址。
+Linux 下启用自动路由时，RProxy 会在 Tun 地址 `198.18.0.1:53` 启动一个本地 DNS 代理，并优先通过 `resolvectl`/`systemd-resolve`，其次通过 `nmcli` 尝试将 Tun 接口 DNS 指向该地址，避免域名先被局域网 DNS 污染后再进入 Tun。如果当前桌面没有启用 systemd-resolved，DNS 自动配置失败不会阻止 Tun 启动，但可能需要手动把系统 DNS 指到 `198.18.0.1`。当前 DNS 代理会按当前路由规则检查查询域名：直连域名转发到 `223.5.5.5:53`，代理域名通过本地 SOCKS 转发到 `8.8.8.8:53`；AAAA 查询暂时返回空结果，以避免未配置 IPv6 Tun 路由时优先连接 IPv6 地址。自动路由还会为 `223.5.5.5` 增加直连旁路，并为 `8.8.8.8`、`8.8.4.4`、`1.1.1.1`、`9.9.9.9`、OpenDNS 等常见境外 DNS 增加 Tun 代理路由。
 
 ## 8. pac
 
@@ -524,7 +524,7 @@ rules:
 
 `routing_profiles` 是可在 GUI 中切换的路由配置列表。每一项包含 `id`、`name`，以及与 `routing` 相同的 `mode`、`default_action`、`geosite`、`rules` 字段。
 
-默认新配置包含三项：
+默认新配置包含三项，并会在自动路由配置中显式把常见境外 DNS IP 规则设为 `proxy`：
 
 - `绕过局域网`：局域网与本机网段直连，其他流量走代理。
 - `全局`：所有流量走代理。

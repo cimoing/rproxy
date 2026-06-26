@@ -1,7 +1,7 @@
 mod geosite;
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use crate::config::{Config, RouteAction, RouteRule, RouteRuleType, RoutingMode};
 
@@ -93,6 +93,17 @@ impl Router {
             return RouteDecision::new(RouteAction::Direct, "private_ip");
         }
 
+        if self.mode == RoutingMode::Auto {
+            for rule in &self.rules {
+                if self.matches_ip_rule(ip, rule) {
+                    return RouteDecision::new(
+                        rule.action,
+                        format!("rule:{:?}:{}", rule.kind, rule.value),
+                    );
+                }
+            }
+        }
+
         RouteDecision::new(self.default_action, "default")
     }
 
@@ -115,6 +126,16 @@ impl Router {
                     .any(|matcher| geosite::matches(host, matcher))
             }
             RouteRuleType::IpCidr | RouteRuleType::Port => false,
+        }
+    }
+
+    fn matches_ip_rule(&self, ip: IpAddr, rule: &RouteRule) -> bool {
+        match rule.kind {
+            RouteRuleType::IpCidr => cidr_contains(rule.value.as_str(), ip),
+            RouteRuleType::Port
+            | RouteRuleType::Domain
+            | RouteRuleType::DomainSuffix
+            | RouteRuleType::Geosite => false,
         }
     }
 
@@ -199,6 +220,16 @@ fn is_private_or_loopback(ip: IpAddr) -> bool {
     }
 }
 
+fn cidr_contains(value: &str, ip: IpAddr) -> bool {
+    let IpAddr::V4(ip) = ip else {
+        return false;
+    };
+    let Some((network, mask)) = parse_ipv4_cidr(value) else {
+        return false;
+    };
+    (u32::from(ip) & mask) == network
+}
+
 fn geosite_conditions(matchers: &[geosite::GeositeMatcher]) -> Vec<String> {
     matchers
         .iter()
@@ -208,23 +239,27 @@ fn geosite_conditions(matchers: &[geosite::GeositeMatcher]) -> Vec<String> {
 }
 
 fn cidr_to_pac_condition(value: &str) -> Option<String> {
+    let (network, mask) = parse_ipv4_cidr(value)?;
+    Some(format!(
+        r#"isInNet(dnsResolve(host), "{}", "{}")"#,
+        Ipv4Addr::from(network),
+        Ipv4Addr::from(mask)
+    ))
+}
+
+fn parse_ipv4_cidr(value: &str) -> Option<(u32, u32)> {
     let (ip, prefix) = value.split_once('/')?;
     let prefix = prefix.parse::<u8>().ok()?;
     if prefix > 32 {
         return None;
     }
-    let ip = ip.parse::<std::net::Ipv4Addr>().ok()?;
+    let ip = ip.parse::<Ipv4Addr>().ok()?;
     let mask = if prefix == 0 {
         0
     } else {
         u32::MAX << (32 - prefix)
     };
-    let network = u32::from(ip) & mask;
-    Some(format!(
-        r#"isInNet(dnsResolve(host), "{}", "{}")"#,
-        std::net::Ipv4Addr::from(network),
-        std::net::Ipv4Addr::from(mask)
-    ))
+    Some((u32::from(ip) & mask, mask))
 }
 
 fn port_to_pac_condition(value: &str) -> Option<String> {
@@ -306,5 +341,29 @@ mod tests {
             RouteAction::Proxy
         );
         assert_eq!(router.decide_host("example.cn").action, RouteAction::Direct);
+    }
+
+    #[test]
+    fn ip_cidr_rules_match_ip_decisions() {
+        let router = Router {
+            mode: RoutingMode::Auto,
+            default_action: RouteAction::Direct,
+            rules: vec![RouteRule {
+                kind: RouteRuleType::IpCidr,
+                value: "8.8.8.8/32".into(),
+                action: RouteAction::Proxy,
+            }],
+            geosite_cn: vec![],
+            geosite_rules: HashMap::new(),
+        };
+
+        assert_eq!(
+            router.decide_ip("8.8.8.8".parse().unwrap()).action,
+            RouteAction::Proxy
+        );
+        assert_eq!(
+            router.decide_ip("9.9.9.9".parse().unwrap()).action,
+            RouteAction::Direct
+        );
     }
 }

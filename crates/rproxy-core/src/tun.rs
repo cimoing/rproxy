@@ -10,7 +10,10 @@ use std::{
 
 use tracing::{info, warn};
 
-use crate::config::{Config, NodeConfig};
+use crate::{
+    config::{Config, NodeConfig, RouteAction},
+    routing::Router,
+};
 
 #[cfg(windows)]
 const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
@@ -19,7 +22,21 @@ const TUN_PREFIX: &str = "198.18.0.1/15";
 const TUN_DNS: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 #[cfg(windows)]
 const TUN_NETMASK: &str = "255.254.0.0";
-const DNS_UPSTREAM: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+const DIRECT_DNS_UPSTREAM: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(223, 5, 5, 5)), 53);
+const PROXY_DNS_UPSTREAM: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+const DIRECT_DNS_ROUTE_IPS: &[Ipv4Addr] = &[Ipv4Addr::new(223, 5, 5, 5)];
+const PROXY_DNS_ROUTE_IPS: &[Ipv4Addr] = &[
+    Ipv4Addr::new(8, 8, 8, 8),
+    Ipv4Addr::new(8, 8, 4, 4),
+    Ipv4Addr::new(1, 1, 1, 1),
+    Ipv4Addr::new(1, 0, 0, 1),
+    Ipv4Addr::new(9, 9, 9, 9),
+    Ipv4Addr::new(149, 112, 112, 112),
+    Ipv4Addr::new(208, 67, 222, 222),
+    Ipv4Addr::new(208, 67, 220, 220),
+];
 
 #[derive(Debug, Clone)]
 pub struct TunStatus {
@@ -109,7 +126,7 @@ impl TunRuntime {
         };
 
         let dns = if config.tun.auto_route {
-            match DnsRuntime::start(config.proxy.socks_listen) {
+            match DnsRuntime::start(config.proxy.socks_listen, Router::from_config(config)) {
                 Ok(dns) => {
                     let dns_configured = configure_dns(&interface_name);
                     if !dns_configured {
@@ -191,7 +208,7 @@ impl RouteGuard {
 }
 
 impl DnsRuntime {
-    fn start(socks_listen: SocketAddr) -> Result<Self, TunError> {
+    fn start(socks_listen: SocketAddr, router: Router) -> Result<Self, TunError> {
         let listen = SocketAddr::new(IpAddr::V4(TUN_DNS), 53);
         let socket = std::net::UdpSocket::bind(listen)?;
         socket.set_read_timeout(Some(Duration::from_millis(300)))?;
@@ -206,10 +223,11 @@ impl DnsRuntime {
                     continue;
                 };
                 let query = buffer[..len].to_vec();
-                let response = resolve_dns_query(&query, socks_listen).unwrap_or_else(|error| {
-                    warn!(%error, "Tun DNS query failed");
-                    dns_servfail_response(&query)
-                });
+                let response =
+                    resolve_dns_query(&query, socks_listen, &router).unwrap_or_else(|error| {
+                        warn!(%error, "Tun DNS query failed");
+                        dns_servfail_response(&query)
+                    });
                 let _ = socket.send_to(&response, peer);
             }
         });
@@ -234,15 +252,46 @@ fn socks_proxy_uri(listen: SocketAddr) -> String {
     format!("socks5://{listen}")
 }
 
-fn resolve_dns_query(query: &[u8], socks_listen: SocketAddr) -> Result<Vec<u8>, TunError> {
+fn resolve_dns_query(
+    query: &[u8],
+    socks_listen: SocketAddr,
+    router: &Router,
+) -> Result<Vec<u8>, TunError> {
     if dns_query_has_type(query, 28) {
         return Ok(dns_empty_response(query));
     }
 
+    let action = dns_query_name(query)
+        .map(|host| router.decide_host(&host).action)
+        .unwrap_or_else(|| router.default_action());
+    match action {
+        RouteAction::Direct => resolve_dns_query_direct(query, DIRECT_DNS_UPSTREAM),
+        RouteAction::Proxy => resolve_dns_query_via_socks(query, socks_listen, PROXY_DNS_UPSTREAM),
+        RouteAction::Block => Ok(dns_servfail_response(query)),
+    }
+}
+
+fn resolve_dns_query_direct(query: &[u8], upstream: SocketAddr) -> Result<Vec<u8>, TunError> {
+    let socket = std::net::UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
+    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+    socket.set_write_timeout(Some(Duration::from_secs(5)))?;
+    socket.send_to(query, upstream)?;
+
+    let mut response = vec![0_u8; 4096];
+    let (len, _) = socket.recv_from(&mut response)?;
+    response.truncate(len);
+    Ok(response)
+}
+
+fn resolve_dns_query_via_socks(
+    query: &[u8],
+    socks_listen: SocketAddr,
+    upstream: SocketAddr,
+) -> Result<Vec<u8>, TunError> {
     let mut stream = std::net::TcpStream::connect(socks_listen)?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    socks5_connect(&mut stream, DNS_UPSTREAM)?;
+    socks5_connect(&mut stream, upstream)?;
 
     let len = u16::try_from(query.len())
         .map_err(|_| TunError::Command("DNS query is too large".into()))?
@@ -318,6 +367,36 @@ fn dns_query_has_type(query: &[u8], qtype: u16) -> bool {
         .and_then(|question_end| query.get(question_end..question_end + 4))
         .map(|tail| u16::from_be_bytes([tail[0], tail[1]]) == qtype)
         .unwrap_or(false)
+}
+
+fn dns_query_name(query: &[u8]) -> Option<String> {
+    if query.len() < 12 {
+        return None;
+    }
+    let question_count = u16::from_be_bytes([query[4], query[5]]);
+    if question_count == 0 {
+        return None;
+    }
+
+    let mut labels = Vec::new();
+    let mut cursor = 12;
+    while cursor < query.len() {
+        let len = *query.get(cursor)?;
+        cursor += 1;
+        if len == 0 {
+            break;
+        }
+        if len & 0xc0 != 0 {
+            return None;
+        }
+        let len = len as usize;
+        let end = cursor.checked_add(len)?;
+        let label = std::str::from_utf8(query.get(cursor..end)?).ok()?;
+        labels.push(label.to_ascii_lowercase());
+        cursor = end;
+    }
+
+    (!labels.is_empty()).then(|| labels.join("."))
 }
 
 fn dns_question_end(query: &[u8]) -> Option<usize> {
@@ -443,6 +522,8 @@ fn configure_routes(interface_name: &str, node_ip: IpAddr) -> Result<RouteGuard,
         )?;
     }
 
+    configure_linux_dns_routes(interface_name, &default_route);
+
     run_command("ip", &["route", "add", "0.0.0.0/1", "dev", interface_name])?;
     run_command(
         "ip",
@@ -469,7 +550,47 @@ fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured:
     if let Some(IpAddr::V4(ip)) = node_ip {
         let _ = run_command("ip", &["route", "del", &format!("{ip}/32")]);
     }
+    cleanup_linux_dns_routes();
     let _ = run_command("ip", &["link", "del", "dev", interface_name]);
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_dns_routes(interface_name: &str, default_route: &LinuxDefaultRoute) {
+    for ip in DIRECT_DNS_ROUTE_IPS {
+        if let Err(error) = run_command(
+            "ip",
+            &[
+                "route",
+                "add",
+                &format!("{ip}/32"),
+                "via",
+                &default_route.gateway.to_string(),
+                "dev",
+                &default_route.interface,
+            ],
+        ) {
+            warn!(%error, dns = %ip, "failed to add direct DNS bypass route");
+        }
+    }
+
+    for ip in PROXY_DNS_ROUTE_IPS {
+        if let Err(error) = run_command(
+            "ip",
+            &["route", "add", &format!("{ip}/32"), "dev", interface_name],
+        ) {
+            warn!(%error, dns = %ip, "failed to add proxy DNS Tun route");
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn cleanup_linux_dns_routes() {
+    for ip in DIRECT_DNS_ROUTE_IPS
+        .iter()
+        .chain(PROXY_DNS_ROUTE_IPS.iter())
+    {
+        let _ = run_command("ip", &["route", "del", &format!("{ip}/32")]);
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -592,6 +713,8 @@ fn configure_routes(interface_name: &str, node_ip: IpAddr) -> Result<RouteGuard,
         )?;
     }
 
+    configure_windows_dns_routes(&default_route);
+
     run_command(
         "route",
         &[
@@ -632,6 +755,7 @@ fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured:
     if let Some(IpAddr::V4(ip)) = node_ip {
         let _ = run_command("route", &["delete", &ip.to_string()]);
     }
+    cleanup_windows_dns_routes();
     let _ = run_command(
         "netsh",
         &[
@@ -643,6 +767,51 @@ fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured:
             &TUN_ADDR.to_string(),
         ],
     );
+}
+
+#[cfg(windows)]
+fn configure_windows_dns_routes(default_route: &WindowsDefaultRoute) {
+    for ip in DIRECT_DNS_ROUTE_IPS {
+        if let Err(error) = run_command(
+            "route",
+            &[
+                "add",
+                &ip.to_string(),
+                "mask",
+                "255.255.255.255",
+                &default_route.gateway.to_string(),
+            ],
+        ) {
+            warn!(%error, dns = %ip, "failed to add direct DNS bypass route");
+        }
+    }
+
+    for ip in PROXY_DNS_ROUTE_IPS {
+        if let Err(error) = run_command(
+            "route",
+            &[
+                "add",
+                &ip.to_string(),
+                "mask",
+                "255.255.255.255",
+                &TUN_ADDR.to_string(),
+                "metric",
+                "1",
+            ],
+        ) {
+            warn!(%error, dns = %ip, "failed to add proxy DNS Tun route");
+        }
+    }
+}
+
+#[cfg(windows)]
+fn cleanup_windows_dns_routes() {
+    for ip in DIRECT_DNS_ROUTE_IPS
+        .iter()
+        .chain(PROXY_DNS_ROUTE_IPS.iter())
+    {
+        let _ = run_command("route", &["delete", &ip.to_string()]);
+    }
 }
 
 #[cfg(windows)]
@@ -704,6 +873,17 @@ mod tests {
             .expect("route parsed");
         assert_eq!(route.gateway.to_string(), "192.168.1.1");
         assert_eq!(route.interface, "eth0");
+    }
+
+    #[test]
+    fn extracts_dns_query_name() {
+        let query = [
+            0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, b'w',
+            b'w', b'w', 0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm',
+            0x00, 0x00, 0x01, 0x00, 0x01,
+        ];
+
+        assert_eq!(super::dns_query_name(&query).as_deref(), Some("www.example.com"));
     }
 
     #[cfg(windows)]

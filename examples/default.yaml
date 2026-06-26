@@ -65,6 +65,30 @@ routing:
     auto_update: false
   rules:
     - type: ip_cidr
+      value: 8.8.8.8/32
+      action: proxy
+    - type: ip_cidr
+      value: 8.8.4.4/32
+      action: proxy
+    - type: ip_cidr
+      value: 1.1.1.1/32
+      action: proxy
+    - type: ip_cidr
+      value: 1.0.0.1/32
+      action: proxy
+    - type: ip_cidr
+      value: 9.9.9.9/32
+      action: proxy
+    - type: ip_cidr
+      value: 149.112.112.112/32
+      action: proxy
+    - type: ip_cidr
+      value: 208.67.222.222/32
+      action: proxy
+    - type: ip_cidr
+      value: 208.67.220.220/32
+      action: proxy
+    - type: ip_cidr
       value: 10.0.0.0/8
       action: direct
     - type: ip_cidr
@@ -84,6 +108,30 @@ routing_profiles:
       path: data/dlc.dat
       auto_update: false
     rules:
+      - type: ip_cidr
+        value: 8.8.8.8/32
+        action: proxy
+      - type: ip_cidr
+        value: 8.8.4.4/32
+        action: proxy
+      - type: ip_cidr
+        value: 1.1.1.1/32
+        action: proxy
+      - type: ip_cidr
+        value: 1.0.0.1/32
+        action: proxy
+      - type: ip_cidr
+        value: 9.9.9.9/32
+        action: proxy
+      - type: ip_cidr
+        value: 149.112.112.112/32
+        action: proxy
+      - type: ip_cidr
+        value: 208.67.222.222/32
+        action: proxy
+      - type: ip_cidr
+        value: 208.67.220.220/32
+        action: proxy
       - type: ip_cidr
         value: 10.0.0.0/8
         action: direct
@@ -113,6 +161,30 @@ routing_profiles:
       path: data/dlc.dat
       auto_update: false
     rules:
+      - type: ip_cidr
+        value: 8.8.8.8/32
+        action: proxy
+      - type: ip_cidr
+        value: 8.8.4.4/32
+        action: proxy
+      - type: ip_cidr
+        value: 1.1.1.1/32
+        action: proxy
+      - type: ip_cidr
+        value: 1.0.0.1/32
+        action: proxy
+      - type: ip_cidr
+        value: 9.9.9.9/32
+        action: proxy
+      - type: ip_cidr
+        value: 149.112.112.112/32
+        action: proxy
+      - type: ip_cidr
+        value: 208.67.222.222/32
+        action: proxy
+      - type: ip_cidr
+        value: 208.67.220.220/32
+        action: proxy
       - type: geosite
         value: cn
         action: direct

@@ -476,11 +476,14 @@ pub fn default_route_profiles() -> Vec<RouteProfileConfig> {
                 mode: RoutingMode::Auto,
                 default_action: RouteAction::Proxy,
                 geosite: GeositeConfig::default(),
-                rules: vec![RouteRule {
-                    kind: RouteRuleType::Geosite,
-                    value: "cn".into(),
-                    action: RouteAction::Direct,
-                }],
+                rules: common_foreign_dns_proxy_rules()
+                    .into_iter()
+                    .chain(std::iter::once(RouteRule {
+                        kind: RouteRuleType::Geosite,
+                        value: "cn".into(),
+                        action: RouteAction::Direct,
+                    }))
+                    .collect(),
             },
         },
     ]
@@ -491,8 +494,31 @@ fn bypass_lan_routing() -> RoutingConfig {
         mode: RoutingMode::Auto,
         default_action: RouteAction::Proxy,
         geosite: GeositeConfig::default(),
-        rules: private_network_rules(),
+        rules: common_foreign_dns_proxy_rules()
+            .into_iter()
+            .chain(private_network_rules())
+            .collect(),
     }
+}
+
+fn common_foreign_dns_proxy_rules() -> Vec<RouteRule> {
+    [
+        "8.8.8.8/32",
+        "8.8.4.4/32",
+        "1.1.1.1/32",
+        "1.0.0.1/32",
+        "9.9.9.9/32",
+        "149.112.112.112/32",
+        "208.67.222.222/32",
+        "208.67.220.220/32",
+    ]
+    .into_iter()
+    .map(|value| RouteRule {
+        kind: RouteRuleType::IpCidr,
+        value: value.into(),
+        action: RouteAction::Proxy,
+    })
+    .collect()
 }
 
 fn private_network_rules() -> Vec<RouteRule> {
