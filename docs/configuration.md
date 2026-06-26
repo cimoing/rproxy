@@ -2,7 +2,7 @@
 
 RProxy 使用 YAML 作为配置文件格式。默认示例位于 `examples/default.yaml`。
 
-阶段一配置目标是描述一个可启动的 Windows 本地代理客户端，包括代理节点、本地监听地址、系统代理、PAC、路由规则和基础系统选项。
+阶段一配置目标是描述一个可启动的桌面本地代理客户端，包括代理节点、本地监听地址、系统代理、PAC、路由规则和基础系统选项。Windows 是首批完整支持平台；Linux 先支持 GNOME 和 Plasma 桌面环境的系统代理与开机自启动。
 
 ## 1. 完整示例
 
@@ -298,7 +298,7 @@ proxy:
 
 ## 6. system
 
-`system` 配置 Windows 系统集成能力。
+`system` 配置系统集成能力。
 
 ```yaml
 system:
@@ -308,10 +308,15 @@ system:
 
 字段说明：
 
-- `tray`：是否启用系统托盘。默认值为 `true`。
+- `tray`：是否启用系统托盘。默认值为 `true`。当前托盘能力主要支持 Windows，Linux 桌面托盘后续补齐。
 - `auto_start`：是否开机自启动。默认值为 `false`。
 
-阶段一以 Windows 为首批平台。开机自启动通过当前用户的启动项配置实现。
+Windows 开机自启动通过当前用户启动项配置实现。Linux 使用 XDG Autostart，在 `$XDG_CONFIG_HOME/autostart/rproxy.desktop` 或 `~/.config/autostart/rproxy.desktop` 中写入启动项。
+
+Linux 系统代理当前优先适配：
+
+- GNOME：通过 `gsettings` 写入和恢复 `org.gnome.system.proxy`。
+- Plasma：通过 `kwriteconfig6`、`kwriteconfig5` 或 `kwriteconfig` 写入 `kioslaverc`，并尽量通知 KIO 重新加载代理配置。
 
 ## 7. tun
 
@@ -537,7 +542,7 @@ rules:
 
 ## 12. 阶段一边界
 
-阶段一配置文件已经覆盖 HTTP、SOCKS、VMess、路由、PAC 和 Windows 系统集成字段。
+阶段一配置文件已经覆盖 HTTP、SOCKS、VMess、路由、PAC 和桌面系统集成字段。
 
 当前已实现的网络协议能力：
 

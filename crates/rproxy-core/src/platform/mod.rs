@@ -1,20 +1,24 @@
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 use std::net::SocketAddr;
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(target_os = "linux")]
+pub use linux::{Autostart, SystemProxy, SystemProxySnapshot};
 #[cfg(windows)]
 pub use windows::{Autostart, SystemProxy, SystemProxySnapshot, Tray};
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 pub struct SystemProxy;
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 #[derive(Debug, Clone)]
 pub struct SystemProxySnapshot;
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 impl SystemProxy {
     pub fn snapshot() -> std::io::Result<SystemProxySnapshot> {
         Ok(SystemProxySnapshot)
@@ -37,10 +41,10 @@ impl SystemProxy {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 pub struct Autostart;
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 impl Autostart {
     pub fn set_enabled(_enabled: bool) -> std::io::Result<()> {
         Ok(())
