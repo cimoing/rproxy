@@ -12,6 +12,7 @@ profile:
   name: Default
   enabled: true
   active_node: vmess-1
+  active_route: bypass-lan
 
 nodes:
   - id: http-1
@@ -84,6 +85,49 @@ routing:
     - type: ip_cidr
       value: 10.0.0.0/8
       action: direct
+
+routing_profiles:
+  - id: bypass-lan
+    name: 绕过局域网
+    mode: auto
+    default_action: proxy
+    geosite:
+      enabled: true
+      path: data/dlc.dat
+      auto_update: false
+    rules:
+      - type: ip_cidr
+        value: 10.0.0.0/8
+        action: direct
+      - type: ip_cidr
+        value: 172.16.0.0/12
+        action: direct
+      - type: ip_cidr
+        value: 192.168.0.0/16
+        action: direct
+
+  - id: global-proxy
+    name: 全局
+    mode: global_proxy
+    default_action: proxy
+    geosite:
+      enabled: true
+      path: data/dlc.dat
+      auto_update: false
+    rules: []
+
+  - id: bypass-cn-lan
+    name: 绕过大陆及局域网
+    mode: auto
+    default_action: proxy
+    geosite:
+      enabled: true
+      path: data/dlc.dat
+      auto_update: false
+    rules:
+      - type: geosite
+        value: cn
+        action: direct
 ```
 
 ## 2. 顶层结构
@@ -97,6 +141,7 @@ routing:
 - `tun`：Tun 模式设置。阶段一保留字段，阶段二实现。
 - `pac`：PAC 服务设置。
 - `routing`：自动路由规则设置。
+- `routing_profiles`：可切换的路由配置列表。
 
 ## 3. profile
 
@@ -115,6 +160,7 @@ profile:
 - `name`：配置显示名称。必填。
 - `enabled`：配置是否启用。默认值为 `true`。
 - `active_node`：当前活动节点 ID。可选；为空时默认使用 `nodes` 中第一个节点。
+- `active_route`：当前启用路由 ID。可选；为空时默认使用 `routing_profiles` 中第一个路由。
 
 阶段一为单配置模式。阶段二会在多配置管理中使用 `id` 和 `name` 进行配置索引和切换。
 
@@ -318,7 +364,7 @@ PAC 生成规则：
 
 ## 9. routing
 
-`routing` 配置自动路由。
+`routing` 配置当前启用路由。新版本会优先使用 `profile.active_route` 指向的 `routing_profiles` 项；保留 `routing` 是为了兼容旧配置和便于查看当前生效内容。
 
 ```yaml
 routing:
@@ -459,7 +505,17 @@ rules:
     action: direct
 ```
 
-## 10. 配置校验规则
+## 10. routing_profiles
+
+`routing_profiles` 是可在 GUI 中切换的路由配置列表。每一项包含 `id`、`name`，以及与 `routing` 相同的 `mode`、`default_action`、`geosite`、`rules` 字段。
+
+默认新配置包含三项：
+
+- `绕过局域网`：局域网与本机网段直连，其他流量走代理。
+- `全局`：所有流量走代理。
+- `绕过大陆及局域网`：大陆域名和局域网直连，其他流量走代理。
+
+## 11. 配置校验规则
 
 当前实现包含以下校验：
 
@@ -473,11 +529,13 @@ rules:
 
 - 节点 `id` 在同一配置内必须唯一。
 - `profile.active_node` 如果配置，必须指向已有节点 ID。
+- `profile.active_route` 如果配置，必须指向已有路由 ID。
+- 路由配置 ID 在同一配置内必须唯一。
 - 本地监听端口不要与其他程序冲突。
 - 敏感信息不要提交到公开仓库。
 - PAC 服务和本地代理默认监听 `127.0.0.1`。
 
-## 11. 阶段一边界
+## 12. 阶段一边界
 
 阶段一配置文件已经覆盖 HTTP、SOCKS、VMess、路由、PAC 和 Windows 系统集成字段。
 

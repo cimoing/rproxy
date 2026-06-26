@@ -30,20 +30,20 @@ pub struct PacRule {
 
 impl Router {
     pub fn from_config(config: &Config) -> Self {
+        let routing = config.active_routing();
         Self {
-            mode: config.routing.mode.clone(),
-            default_action: config.routing.default_action,
-            rules: config.routing.rules.clone(),
-            geosite_cn: if config.routing.geosite.enabled {
-                geosite::load_cn_with_fallback(config.routing.geosite.path.as_deref())
+            mode: routing.mode.clone(),
+            default_action: routing.default_action,
+            rules: routing.rules.clone(),
+            geosite_cn: if routing.geosite.enabled {
+                geosite::load_cn_with_fallback(routing.geosite.path.as_deref())
             } else {
                 Vec::new()
             },
-            geosite_rules: if config.routing.geosite.enabled {
+            geosite_rules: if routing.geosite.enabled {
                 geosite::load_categories(
-                    config.routing.geosite.path.as_deref(),
-                    config
-                        .routing
+                    routing.geosite.path.as_deref(),
+                    routing
                         .rules
                         .iter()
                         .filter(|rule| rule.kind == RouteRuleType::Geosite)
@@ -254,6 +254,7 @@ mod tests {
                 name: "Default".into(),
                 enabled: true,
                 active_node: None,
+                active_route: None,
             },
             nodes: vec![],
             proxy: ProxyConfig {
@@ -269,6 +270,7 @@ mod tests {
                 geosite: GeositeConfig::default(),
                 rules: vec![],
             },
+            routing_profiles: vec![],
         };
 
         let router = Router::from_config(&config);

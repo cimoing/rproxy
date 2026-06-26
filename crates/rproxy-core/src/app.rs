@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::Mutex;
 
 use crate::{
-    config::{Config, ConfigError, NodeConfig},
+    config::{Config, ConfigError, NodeConfig, RouteProfileConfig},
     platform::{Autostart, SystemProxy, SystemProxySnapshot},
     proxy::{ProxyRuntime, RuntimeError, RuntimeStatus},
 };
@@ -31,6 +31,12 @@ pub struct AppSettings {
 #[derive(Debug, Clone)]
 pub struct NodeEntry {
     pub node: NodeConfig,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteProfileEntry {
+    pub route: RouteProfileConfig,
     pub active: bool,
 }
 
@@ -91,9 +97,10 @@ impl AppService {
 
     async fn set_config(
         &self,
-        config: Config,
+        mut config: Config,
         config_path: Option<PathBuf>,
     ) -> Result<AppStatus, AppError> {
+        config.normalize_routes();
         config.validate()?;
         let mut state = self.inner.lock().await;
         state.status.message = format!("Loaded profile {}", config.profile.name);
@@ -136,6 +143,27 @@ impl AppService {
                 socks_listen: config.proxy.socks_listen,
                 pac_listen: config.pac.listen,
             })
+    }
+
+    pub async fn routes(&self) -> Vec<RouteProfileEntry> {
+        self.inner
+            .lock()
+            .await
+            .config
+            .as_ref()
+            .map(|config| {
+                let active_id = config.active_route().map(|route| route.id.as_str());
+                config
+                    .routing_profiles
+                    .iter()
+                    .cloned()
+                    .map(|route| {
+                        let active = Some(route.id.as_str()) == active_id;
+                        RouteProfileEntry { route, active }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub async fn save_settings(
@@ -241,6 +269,91 @@ impl AppService {
         }
 
         state.status.message = "Node saved".into();
+        state.config = Some(config);
+        Ok(state.status.clone())
+    }
+
+    pub async fn set_active_route(&self, index: usize) -> Result<AppStatus, AppError> {
+        let mut state = self.inner.lock().await;
+        let mut config = state.config.clone().ok_or(AppError::NoConfig)?;
+        let route = config.routing_profiles.get(index).cloned().ok_or_else(|| {
+            ConfigError::Validation(format!("route index {index} does not exist"))
+        })?;
+        config.profile.active_route = Some(route.id.clone());
+        config.routing = route.routing.clone();
+        config.validate()?;
+
+        if let Some(path) = &state.config_path {
+            config.save(path)?;
+        }
+
+        state.config = Some(config);
+        state.status.message = if state.status.running {
+            format!("Active route set to {}; restart proxy to apply", route.name)
+        } else {
+            format!("Active route set to {}", route.name)
+        };
+        Ok(state.status.clone())
+    }
+
+    pub async fn delete_route(&self, index: usize) -> Result<AppStatus, AppError> {
+        let mut state = self.inner.lock().await;
+        let mut config = state.config.clone().ok_or(AppError::NoConfig)?;
+        if index >= config.routing_profiles.len() {
+            return Err(
+                ConfigError::Validation(format!("route index {index} does not exist")).into(),
+            );
+        }
+        if config.routing_profiles.len() == 1 {
+            return Err(ConfigError::Validation("at least one route is required".into()).into());
+        }
+
+        let removed = config.routing_profiles.remove(index);
+        if config.profile.active_route.as_deref() == Some(removed.id.as_str()) {
+            config.profile.active_route = config
+                .routing_profiles
+                .first()
+                .map(|route| route.id.clone());
+            config.normalize_routes();
+        }
+        config.validate()?;
+
+        if let Some(path) = &state.config_path {
+            config.save(path)?;
+        }
+
+        state.config = Some(config);
+        state.status.message = if state.status.running {
+            format!("Route {} deleted; restart proxy to apply", removed.name)
+        } else {
+            format!("Route {} deleted", removed.name)
+        };
+        Ok(state.status.clone())
+    }
+
+    pub async fn save_route(
+        &self,
+        index: Option<usize>,
+        route: RouteProfileConfig,
+    ) -> Result<AppStatus, AppError> {
+        let mut state = self.inner.lock().await;
+        let mut config = state.config.clone().ok_or(AppError::NoConfig)?;
+        match index {
+            Some(index) if index < config.routing_profiles.len() => {
+                let mut route = route;
+                route.id = config.routing_profiles[index].id.clone();
+                config.routing_profiles[index] = route;
+            }
+            Some(_) | None => config.routing_profiles.push(route),
+        }
+        config.normalize_routes();
+        config.validate()?;
+
+        if let Some(path) = &state.config_path {
+            config.save(path)?;
+        }
+
+        state.status.message = "Route saved".into();
         state.config = Some(config);
         Ok(state.status.clone())
     }

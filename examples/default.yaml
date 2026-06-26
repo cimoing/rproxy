@@ -3,6 +3,7 @@ profile:
   name: Default
   enabled: true
   active_node: vmess-1
+  active_route: bypass-lan
 
 nodes:
   - id: http-1
@@ -57,21 +58,61 @@ pac:
 
 routing:
   mode: auto
-  default_action: direct
+  default_action: proxy
   geosite:
     enabled: true
     path: data/dlc.dat
     auto_update: false
   rules:
-    - type: geosite
-      value: google
-      action: proxy
-    - type: geosite
-      value: google@ads
-      action: block
-    - type: domain_suffix
-      value: example.cn
-      action: direct
     - type: ip_cidr
       value: 10.0.0.0/8
       action: direct
+    - type: ip_cidr
+      value: 172.16.0.0/12
+      action: direct
+    - type: ip_cidr
+      value: 192.168.0.0/16
+      action: direct
+
+routing_profiles:
+  - id: bypass-lan
+    name: 绕过局域网
+    mode: auto
+    default_action: proxy
+    geosite:
+      enabled: true
+      path: data/dlc.dat
+      auto_update: false
+    rules:
+      - type: ip_cidr
+        value: 10.0.0.0/8
+        action: direct
+      - type: ip_cidr
+        value: 172.16.0.0/12
+        action: direct
+      - type: ip_cidr
+        value: 192.168.0.0/16
+        action: direct
+
+  - id: global-proxy
+    name: 全局
+    mode: global_proxy
+    default_action: proxy
+    geosite:
+      enabled: true
+      path: data/dlc.dat
+      auto_update: false
+    rules: []
+
+  - id: bypass-cn-lan
+    name: 绕过大陆及局域网
+    mode: auto
+    default_action: proxy
+    geosite:
+      enabled: true
+      path: data/dlc.dat
+      auto_update: false
+    rules:
+      - type: geosite
+        value: cn
+        action: direct

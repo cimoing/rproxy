@@ -123,6 +123,7 @@ mod tests {
                 name: "Default".into(),
                 enabled: true,
                 active_node: None,
+                active_route: None,
             },
             nodes: vec![],
             proxy: ProxyConfig {
@@ -146,6 +147,7 @@ mod tests {
                     action: RouteAction::Direct,
                 }],
             },
+            routing_profiles: vec![],
         };
 
         let pac = generate_pac(&Router::from_config(&config), config.proxy.http_listen);
@@ -162,6 +164,7 @@ mod tests {
                 name: "Default".into(),
                 enabled: true,
                 active_node: None,
+                active_route: None,
             },
             nodes: vec![],
             proxy: ProxyConfig {
@@ -181,6 +184,7 @@ mod tests {
                 },
                 rules: vec![],
             },
+            routing_profiles: vec![],
         };
 
         let pac = generate_pac(&Router::from_config(&config), config.proxy.http_listen);

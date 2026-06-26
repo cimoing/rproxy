@@ -26,6 +26,8 @@ pub struct Config {
     pub pac: PacConfig,
     #[serde(default)]
     pub routing: RoutingConfig,
+    #[serde(default)]
+    pub routing_profiles: Vec<RouteProfileConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +37,7 @@ pub struct ProfileConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub active_node: Option<String>,
+    pub active_route: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +170,14 @@ impl Default for RoutingConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteProfileConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(flatten)]
+    pub routing: RoutingConfig,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutingMode {
@@ -224,7 +235,8 @@ pub enum RouteAction {
 impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let text = fs::read_to_string(path)?;
-        let config: Self = serde_yaml::from_str(&text)?;
+        let mut config: Self = serde_yaml::from_str(&text)?;
+        config.normalize_routes();
         config.validate()?;
         Ok(config)
     }
@@ -259,6 +271,7 @@ impl Config {
                 name: "Default".into(),
                 enabled: true,
                 active_node: None,
+                active_route: Some("bypass-lan".into()),
             },
             nodes: Vec::new(),
             proxy: ProxyConfig {
@@ -270,7 +283,8 @@ impl Config {
             system: SystemConfig::default(),
             tun: TunConfig::default(),
             pac: PacConfig::default(),
-            routing: RoutingConfig::default(),
+            routing: bypass_lan_routing(),
+            routing_profiles: default_route_profiles(),
         }
     }
 
@@ -333,6 +347,37 @@ impl Config {
             }
         }
 
+        let mut route_ids = HashSet::new();
+        for route in &self.routing_profiles {
+            if route.id.trim().is_empty() {
+                return Err(ConfigError::Validation("route id is required".into()));
+            }
+            if !route_ids.insert(route.id.as_str()) {
+                return Err(ConfigError::Validation(format!(
+                    "route {} id is duplicated",
+                    route.id
+                )));
+            }
+            if route.name.trim().is_empty() {
+                return Err(ConfigError::Validation(format!(
+                    "route {} name is required",
+                    route.id
+                )));
+            }
+        }
+
+        if let Some(active_route) = self.profile.active_route.as_deref() {
+            if !self
+                .routing_profiles
+                .iter()
+                .any(|route| route.id == active_route)
+            {
+                return Err(ConfigError::Validation(format!(
+                    "profile.active_route {active_route} does not exist"
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -342,6 +387,42 @@ impl Config {
             .as_deref()
             .and_then(|id| self.nodes.iter().find(|node| node.id == id))
             .or_else(|| self.nodes.first())
+    }
+
+    pub fn active_route(&self) -> Option<&RouteProfileConfig> {
+        self.profile
+            .active_route
+            .as_deref()
+            .and_then(|id| self.routing_profiles.iter().find(|route| route.id == id))
+            .or_else(|| self.routing_profiles.first())
+    }
+
+    pub fn active_routing(&self) -> &RoutingConfig {
+        self.active_route()
+            .map(|route| &route.routing)
+            .unwrap_or(&self.routing)
+    }
+
+    pub fn normalize_routes(&mut self) {
+        if self.routing_profiles.is_empty() {
+            let legacy_route = RouteProfileConfig {
+                id: "current-route".into(),
+                name: "当前路由".into(),
+                routing: self.routing.clone(),
+            };
+            self.routing_profiles = std::iter::once(legacy_route)
+                .chain(default_route_profiles())
+                .collect();
+            self.profile.active_route = Some("current-route".into());
+        }
+
+        if self.profile.active_route.is_none() {
+            self.profile.active_route = self.routing_profiles.first().map(|route| route.id.clone());
+        }
+
+        if let Some(route) = self.active_route() {
+            self.routing = route.routing.clone();
+        }
     }
 }
 
@@ -363,4 +444,64 @@ fn default_pac_listen() -> SocketAddr {
 
 fn default_ws_path() -> String {
     "/".into()
+}
+
+pub fn default_route_profiles() -> Vec<RouteProfileConfig> {
+    vec![
+        RouteProfileConfig {
+            id: "bypass-lan".into(),
+            name: "绕过局域网".into(),
+            routing: bypass_lan_routing(),
+        },
+        RouteProfileConfig {
+            id: "global-proxy".into(),
+            name: "全局".into(),
+            routing: RoutingConfig {
+                mode: RoutingMode::GlobalProxy,
+                default_action: RouteAction::Proxy,
+                geosite: GeositeConfig::default(),
+                rules: Vec::new(),
+            },
+        },
+        RouteProfileConfig {
+            id: "bypass-cn-lan".into(),
+            name: "绕过大陆及局域网".into(),
+            routing: RoutingConfig {
+                mode: RoutingMode::Auto,
+                default_action: RouteAction::Proxy,
+                geosite: GeositeConfig::default(),
+                rules: vec![RouteRule {
+                    kind: RouteRuleType::Geosite,
+                    value: "cn".into(),
+                    action: RouteAction::Direct,
+                }],
+            },
+        },
+    ]
+}
+
+fn bypass_lan_routing() -> RoutingConfig {
+    RoutingConfig {
+        mode: RoutingMode::Auto,
+        default_action: RouteAction::Proxy,
+        geosite: GeositeConfig::default(),
+        rules: private_network_rules(),
+    }
+}
+
+fn private_network_rules() -> Vec<RouteRule> {
+    [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+    ]
+    .into_iter()
+    .map(|value| RouteRule {
+        kind: RouteRuleType::IpCidr,
+        value: value.into(),
+        action: RouteAction::Direct,
+    })
+    .collect()
 }

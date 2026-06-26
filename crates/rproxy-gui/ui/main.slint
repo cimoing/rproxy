@@ -1,19 +1,30 @@
-import { Button, CheckBox, ComboBox, LineEdit, ListView, Palette, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, LineEdit, ListView, Palette, ScrollView, TextEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
 export struct NodeRow {
     index: int,
     name: string,
     server: string,
+    port: string,
     protocol: string,
+    transport: string,
+    tls: string,
+    active: bool,
+}
+
+export struct RouteRow {
+    index: int,
+    name: string,
+    mode: string,
+    default_action: string,
     active: bool,
 }
 
 export component MainWindow inherits Window {
     title: "RProxy";
-    preferred-width: 900px;
-    preferred-height: 620px;
-    min-width: 760px;
-    min-height: 520px;
+    preferred-width: 960px;
+    preferred-height: 680px;
+    min-width: 900px;
+    min-height: 640px;
     default-font-size: 14px;
 
     in-out property <string> status;
@@ -21,7 +32,10 @@ export component MainWindow inherits Window {
     in-out property <string> pac-url;
     in-out property <bool> running;
     in-out property <[NodeRow]> nodes;
+    in-out property <[RouteRow]> routes;
     in-out property <bool> editor-open;
+    in-out property <bool> route-settings-open;
+    in-out property <bool> route-editor-open;
     in-out property <bool> settings-open;
     in-out property <bool> edit-pac-enabled;
     in-out property <bool> edit-auto-start;
@@ -40,11 +54,25 @@ export component MainWindow inherits Window {
     in-out property <bool> edit-tls;
     in-out property <string> edit-transport;
     in-out property <string> edit-ws-path;
+    in-out property <[string]> route-names;
+    in-out property <int> route-selected-index: -1;
+    in-out property <int> edit-route-index: -1;
+    in-out property <string> edit-route-title;
+    in-out property <string> edit-route-name;
+    in-out property <string> edit-route-mode;
+    in-out property <string> edit-route-default-action;
+    in-out property <bool> edit-route-geosite-enabled;
+    in-out property <string> edit-route-rules;
     in-out property <bool> context-menu-open;
     in-out property <int> context-node-index: -1;
     in-out property <bool> context-node-active;
     in-out property <length> context-menu-x;
     in-out property <length> context-menu-y;
+    in-out property <bool> route-context-menu-open;
+    in-out property <int> context-route-index: -1;
+    in-out property <bool> context-route-active;
+    in-out property <length> route-context-menu-x;
+    in-out property <length> route-context-menu-y;
 
     callback toggle-proxy();
     callback restart-proxy();
@@ -55,6 +83,13 @@ export component MainWindow inherits Window {
     callback delete-node(int);
     callback save-node(int, string, string, string, string, string, string, string, bool, string, string);
     callback cancel-edit();
+    callback add-route();
+    callback edit-route(int);
+    callback activate-route(int);
+    callback select-route(string);
+    callback delete-route(int);
+    callback save-route(int, string, string, string, bool, string);
+    callback cancel-route-edit();
     callback open-settings();
     callback save-settings(bool, bool, string, string, string);
     callback cancel-settings();
@@ -68,6 +103,10 @@ export component MainWindow inherits Window {
     property <brush> row-hover-background: Palette.alternate-background;
     property <brush> border-color: Palette.border;
     property <brush> status-text: Palette.selection-background;
+    property <brush> accent-color: #27a9e8;
+    property <brush> toolbar-background: #f7f7f7;
+    property <length> node-table-width: 980px;
+    property <length> node-row-height: 30px;
     property <bool> proxy-protocol: root.edit-protocol == "vmess";
     property <bool> auth-protocol: root.edit-protocol == "http" || root.edit-protocol == "socks5";
     property <bool> websocket-transport: root.edit-transport == "websocket";
@@ -76,58 +115,350 @@ export component MainWindow inherits Window {
         background: root.page-background;
 
         VerticalBox {
-            padding: 24px;
-            spacing: 14px;
+            visible: !root.route-settings-open;
+            padding: 0px;
+            spacing: 0px;
+
+            Rectangle {
+                height: 50px;
+                vertical-stretch: 0;
+                background: root.toolbar-background;
+
+                HorizontalBox {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "RProxy";
+                        font-size: 22px;
+                        font-weight: 700;
+                        color: root.primary-text;
+                        width: 112px;
+                        height: 46px;
+                        vertical-alignment: center;
+                    }
+
+                    Button {
+                        text: "添加节点";
+                        height: 34px;
+                        vertical-stretch: 0;
+                        clicked => {
+                            root.add-node();
+                        }
+                    }
+
+                    Button {
+                        text: "路由设置";
+                        height: 34px;
+                        vertical-stretch: 0;
+                        clicked => {
+                            root.route-settings-open = true;
+                        }
+                    }
+
+                    Button {
+                        text: "设置";
+                        height: 34px;
+                        vertical-stretch: 0;
+                        clicked => {
+                            root.open-settings();
+                        }
+                    }
+
+                    Button {
+                        text: "帮助";
+                        height: 34px;
+                        vertical-stretch: 0;
+                    }
+
+                    Button {
+                        text: "重启服务";
+                        height: 34px;
+                        vertical-stretch: 0;
+                        enabled: root.running;
+                        clicked => {
+                            root.restart-proxy();
+                        }
+                    }
+
+                    Button {
+                        text: root.running ? "关闭" : "启动";
+                        height: 34px;
+                        vertical-stretch: 0;
+                        clicked => {
+                            root.toggle-proxy();
+                        }
+                    }
+
+                    Text {
+                        text: root.status;
+                        color: root.status-text;
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    Button {
+                        text: "⋮";
+                        width: 40px;
+                        height: 34px;
+                        vertical-stretch: 0;
+                    }
+                }
+            }
+
+            VerticalBox {
+                vertical-stretch: 1;
+                spacing: 0px;
+
+                Rectangle {
+                    height: 1px;
+                    background: root.border-color;
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    viewport-width: root.node-table-width;
+                    viewport-height: 35px + root.nodes.length * root.node-row-height;
+
+                    VerticalBox {
+                        width: root.node-table-width;
+                        spacing: 0px;
+
+                        HorizontalBox {
+                            height: 34px;
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            spacing: 0px;
+
+                            Text { text: ""; color: root.primary-text; width: 36px; vertical-alignment: center; }
+                            Text { text: "类型"; font-weight: 700; color: root.primary-text; width: 96px; vertical-alignment: center; }
+                            Text { text: "别名"; font-weight: 700; color: root.primary-text; width: 180px; vertical-alignment: center; }
+                            Text { text: "地址"; font-weight: 700; color: root.primary-text; width: 430px; vertical-alignment: center; }
+                            Text { text: "端口"; font-weight: 700; color: root.primary-text; width: 80px; vertical-alignment: center; }
+                            Text { text: "传输协议"; font-weight: 700; color: root.primary-text; width: 112px; vertical-alignment: center; }
+                            Text { text: "TLS"; font-weight: 700; color: root.primary-text; width: 46px; vertical-alignment: center; }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: root.border-color;
+                        }
+
+                        for node in root.nodes : Rectangle {
+                            height: root.node-row-height;
+                            background: node.active ? root.accent-color : (touch.has-hover ? root.row-hover-background : root.row-background);
+
+                            HorizontalBox {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                spacing: 0px;
+
+                                Text { text: node.active ? "●" : ""; color: root.primary-text; width: 36px; vertical-alignment: center; }
+                                Text { text: node.protocol; color: root.primary-text; width: 96px; vertical-alignment: center; }
+                                Text { text: node.name; color: root.primary-text; width: 180px; vertical-alignment: center; overflow: elide; }
+                                Text { text: node.server; color: root.primary-text; width: 430px; vertical-alignment: center; overflow: elide; }
+                                Text { text: node.port; color: root.primary-text; width: 80px; vertical-alignment: center; }
+                                Text { text: node.transport; color: root.primary-text; width: 112px; vertical-alignment: center; }
+                                Text { text: node.tls; color: root.primary-text; width: 46px; vertical-alignment: center; }
+                            }
+
+                            touch := TouchArea {
+                                pointer-event(event) => {
+                                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
+                                        root.context-node-index = node.index;
+                                        root.context-node-active = node.active;
+                                        root.context-menu-x = min(root.width - 168px, max(8px, self.absolute-position.x - root.absolute-position.x + touch.mouse-x));
+                                        root.context-menu-y = min(root.height - 136px, max(8px, self.absolute-position.y - root.absolute-position.y + touch.mouse-y));
+                                        root.context-menu-open = true;
+                                    }
+                                }
+                                clicked => {
+                                    root.context-menu-open = false;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: root.border-color;
+                }
+
+                HorizontalBox {
+                    min-height: 120px;
+                    vertical-stretch: 1;
+                    spacing: 0px;
+
+                    Rectangle {
+                        width: 86px;
+                        background: root.toolbar-background;
+
+                        VerticalBox {
+                            spacing: 0px;
+
+                            Text {
+                                text: "信息";
+                                color: root.accent-color;
+                                height: 56px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                font-weight: 700;
+                            }
+                        }
+                    }
+
+                    VerticalBox {
+                        horizontal-stretch: 1;
+                        spacing: 8px;
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 8px;
+
+                        HorizontalBox {
+                            height: 34px;
+                            spacing: 10px;
+
+                            Button {
+                                text: "清空";
+                                height: 30px;
+                                vertical-stretch: 0;
+                                clicked => {
+                                    root.clear-log();
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: root.log-text;
+                            color: root.secondary-text;
+                            font-size: 12px;
+                            vertical-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 36px;
+                    background: root.toolbar-background;
+
+                    HorizontalBox {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 12px;
+
+                        Text {
+                            text: "本地: " + root.pac-url;
+                            color: root.primary-text;
+                            width: 160px;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: root.running ? "服务: 已启用" : "服务: 已停止";
+                            color: root.primary-text;
+                            width: 90px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "系统代理";
+                            color: root.primary-text;
+                            width: 64px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 170px;
+                            height: 30px;
+                            background: root.row-background;
+                            border-color: root.border-color;
+                            border-width: 1px;
+                            border-radius: 4px;
+
+                            ComboBox {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                model: ["清除系统代理", "PAC 系统代理"];
+                                current-value: root.running ? "PAC 系统代理" : "清除系统代理";
+                            }
+                        }
+
+                        Text {
+                            text: "路由";
+                            color: root.primary-text;
+                            width: 40px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 170px;
+                            height: 30px;
+                            background: root.row-background;
+                            border-color: root.border-color;
+                            border-width: 1px;
+                            border-radius: 4px;
+
+                            ComboBox {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                model: root.route-names;
+                                current-index <=> root.route-selected-index;
+                                selected(value) => {
+                                    root.select-route(value);
+                                }
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+
+        VerticalBox {
+            visible: root.route-settings-open;
+            padding: 20px;
+            spacing: 12px;
 
             HorizontalBox {
+                height: 46px;
+                vertical-stretch: 0;
                 spacing: 12px;
 
+                Button {
+                    text: "返回";
+                    height: 34px;
+                    vertical-stretch: 0;
+                    clicked => {
+                        root.route-settings-open = false;
+                    }
+                }
+
                 Text {
-                    text: "RProxy";
-                    font-size: 28px;
+                    text: "路由设置";
+                    font-size: 24px;
                     font-weight: 700;
                     color: root.primary-text;
+                    height: 44px;
+                    vertical-alignment: center;
                     horizontal-stretch: 1;
                 }
 
                 Button {
-                    text: "添加节点";
+                    text: "添加路由";
                     primary: true;
+                    height: 34px;
+                    vertical-stretch: 0;
                     clicked => {
-                        root.add-node();
-                    }
-                }
-
-                Button {
-                    text: root.running ? "停止代理" : "启动代理";
-                    primary: false;
-                    clicked => {
-                        root.toggle-proxy();
-                    }
-                }
-
-                Button {
-                    text: "重启";
-                    enabled: root.running;
-                    primary: false;
-                    clicked => {
-                        root.restart-proxy();
-                    }
-                }
-
-                Button {
-                    text: "打开 PAC";
-                    primary: false;
-                    clicked => {
-                        root.open-pac(root.pac-url);
-                    }
-                }
-
-                Button {
-                    text: "设置";
-                    primary: false;
-                    clicked => {
-                        root.open-settings();
+                        root.add-route();
                     }
                 }
             }
@@ -135,9 +466,11 @@ export component MainWindow inherits Window {
             Text {
                 text: root.status;
                 color: root.status-text;
+                vertical-stretch: 0;
             }
 
             VerticalBox {
+                vertical-stretch: 1;
                 spacing: 8px;
 
                 HorizontalBox {
@@ -146,10 +479,10 @@ export component MainWindow inherits Window {
                     padding-left: 8px;
                     padding-right: 8px;
 
-                    Text { text: "状态"; font-weight: 700; color: root.primary-text; width: 56px; }
-                    Text { text: "名称"; font-weight: 700; color: root.primary-text; width: 160px; }
-                    Text { text: "域名"; font-weight: 700; color: root.primary-text; horizontal-stretch: 1; }
-                    Text { text: "协议"; font-weight: 700; color: root.primary-text; width: 96px; }
+                    Text { text: "状态"; font-weight: 700; color: root.primary-text; width: 64px; }
+                    Text { text: "名称"; font-weight: 700; color: root.primary-text; horizontal-stretch: 1; }
+                    Text { text: "模式"; font-weight: 700; color: root.primary-text; width: 140px; }
+                    Text { text: "默认动作"; font-weight: 700; color: root.primary-text; width: 92px; }
                 }
 
                 Rectangle {
@@ -158,84 +491,42 @@ export component MainWindow inherits Window {
                 }
 
                 ListView {
-                    height: 310px;
+                    vertical-stretch: 1;
 
-                    for node in root.nodes : Rectangle {
+                    for route in root.routes : Rectangle {
                         height: 44px;
-                        background: touch.has-hover ? root.row-hover-background : root.row-background;
+                        background: route-page-touch.has-hover ? root.row-hover-background : root.row-background;
 
                         HorizontalBox {
                             padding-left: 8px;
                             padding-right: 8px;
                             spacing: 8px;
 
-                            Text { text: node.active ? "活动" : ""; color: root.status-text; width: 56px; vertical-alignment: center; }
-                            Text { text: node.name; color: root.primary-text; width: 160px; vertical-alignment: center; }
-                            Text { text: node.server; color: root.secondary-text; horizontal-stretch: 1; vertical-alignment: center; }
-                            Text { text: node.protocol; color: root.primary-text; width: 96px; vertical-alignment: center; }
+                            Text { text: route.active ? "启用" : ""; color: root.status-text; width: 64px; vertical-alignment: center; }
+                            Text { text: route.name; color: root.primary-text; horizontal-stretch: 1; vertical-alignment: center; }
+                            Text { text: route.mode; color: root.secondary-text; width: 140px; vertical-alignment: center; }
+                            Text { text: route.default_action; color: root.secondary-text; width: 92px; vertical-alignment: center; }
                         }
 
-                        touch := TouchArea {
+                        route-page-touch := TouchArea {
                             pointer-event(event) => {
                                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                                    root.context-node-index = node.index;
-                                    root.context-node-active = node.active;
-                                    root.context-menu-x = min(root.width - 168px, max(8px, self.absolute-position.x - root.absolute-position.x + touch.mouse-x));
-                                    root.context-menu-y = min(root.height - 136px, max(8px, self.absolute-position.y - root.absolute-position.y + touch.mouse-y));
-                                    root.context-menu-open = true;
+                                    root.context-menu-open = false;
+                                    root.context-route-index = route.index;
+                                    root.context-route-active = route.active;
+                                    root.route-context-menu-x = min(root.width - 168px, max(8px, self.absolute-position.x - root.absolute-position.x + route-page-touch.mouse-x));
+                                    root.route-context-menu-y = min(root.height - 136px, max(8px, self.absolute-position.y - root.absolute-position.y + route-page-touch.mouse-y));
+                                    root.route-context-menu-open = true;
                                 }
                             }
-                            clicked => {
-                                root.context-menu-open = false;
-                            }
                         }
-                    }
-                }
-
-                HorizontalBox {
-                    height: 32px;
-                    spacing: 8px;
-
-                    Text {
-                        text: "运行日志";
-                        font-weight: 700;
-                        color: root.primary-text;
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                    }
-
-                    Button {
-                        text: "清空";
-                        height: 30px;
-                        clicked => {
-                            root.clear-log();
-                        }
-                    }
-                }
-
-                Rectangle {
-                    height: 96px;
-                    background: root.row-background;
-                    border-color: root.border-color;
-                    border-width: 1px;
-                    border-radius: 4px;
-
-                    Text {
-                        x: 10px;
-                        y: 8px;
-                        width: parent.width - 20px;
-                        height: parent.height - 16px;
-                        text: root.log-text;
-                        color: root.secondary-text;
-                        font-size: 12px;
-                        overflow: elide;
                     }
                 }
             }
         }
 
         Rectangle {
-            visible: root.context-menu-open && !root.editor-open && !root.settings-open;
+            visible: root.context-menu-open && !root.route-settings-open && !root.editor-open && !root.route-editor-open && !root.settings-open;
             x: root.context-menu-x;
             y: root.context-menu-y;
             width: 160px;
@@ -280,6 +571,54 @@ export component MainWindow inherits Window {
         }
 
         Rectangle {
+            visible: root.route-context-menu-open && !root.editor-open && !root.route-editor-open && !root.settings-open;
+            x: root.route-context-menu-x;
+            y: root.route-context-menu-y;
+            width: 160px;
+            height: root.context-route-active ? 88px : 128px;
+            z: 100;
+            background: root.panel-background;
+            border-color: root.border-color;
+            border-width: 1px;
+            border-radius: 6px;
+
+            VerticalBox {
+                padding: 6px;
+                spacing: 4px;
+
+                if !root.context-route-active : Button {
+                    text: "启用";
+                    height: 32px;
+                    enabled: root.context-route-index >= 0;
+                    clicked => {
+                        root.route-context-menu-open = false;
+                        root.activate-route(root.context-route-index);
+                    }
+                }
+
+                Button {
+                    text: "编辑";
+                    height: 32px;
+                    enabled: root.context-route-index >= 0;
+                    clicked => {
+                        root.route-context-menu-open = false;
+                        root.edit-route(root.context-route-index);
+                    }
+                }
+
+                Button {
+                    text: "删除";
+                    height: 32px;
+                    enabled: root.context-route-index >= 0;
+                    clicked => {
+                        root.route-context-menu-open = false;
+                        root.delete-route(root.context-route-index);
+                    }
+                }
+            }
+        }
+
+        Rectangle {
             visible: root.editor-open;
             x: 0px;
             y: 0px;
@@ -288,8 +627,8 @@ export component MainWindow inherits Window {
             background: #00000066;
 
             Rectangle {
-                width: 460px;
-                height: root.proxy-protocol ? 500px : 390px;
+                width: 480px;
+                height: root.proxy-protocol ? 520px : 410px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.panel-background;
@@ -430,6 +769,120 @@ export component MainWindow inherits Window {
         }
 
         Rectangle {
+            visible: root.route-editor-open;
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            background: #00000066;
+
+            Rectangle {
+                width: 540px;
+                height: 460px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: root.panel-background;
+                border-color: root.border-color;
+                border-width: 1px;
+                border-radius: 6px;
+
+                VerticalBox {
+                    padding: 20px;
+                    spacing: 10px;
+
+                    Text {
+                        text: root.edit-route-title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: root.primary-text;
+                        height: 28px;
+                        vertical-stretch: 0;
+                    }
+
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        Text { text: "名称"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        LineEdit { text <=> root.edit-route-name; horizontal-stretch: 1; }
+                    }
+
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        z: 20;
+                        Text { text: "模式"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        ComboBox {
+                            model: ["auto", "global_proxy", "global_direct"];
+                            current-value <=> root.edit-route-mode;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        z: 18;
+                        Text { text: "默认动作"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        ComboBox {
+                            model: ["proxy", "direct", "block"];
+                            current-value <=> root.edit-route-default-action;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    CheckBox {
+                        text: "启用 geosite";
+                        checked <=> root.edit-route-geosite-enabled;
+                        vertical-stretch: 0;
+                    }
+
+                    Text {
+                        text: "规则";
+                        color: root.primary-text;
+                        font-weight: 700;
+                        vertical-stretch: 0;
+                    }
+
+                    TextEdit {
+                        text <=> root.edit-route-rules;
+                        height: 150px;
+                        horizontal-stretch: 1;
+                    }
+
+                    HorizontalBox {
+                        height: 44px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        alignment: center;
+
+                        Button {
+                            text: "保存";
+                            primary: true;
+                            width: 88px;
+                            height: 36px;
+                            clicked => {
+                                root.save-route(root.edit-route-index, root.edit-route-name, root.edit-route-mode, root.edit-route-default-action, root.edit-route-geosite-enabled, root.edit-route-rules);
+                            }
+                        }
+
+                        Button {
+                            text: "取消";
+                            primary: false;
+                            width: 88px;
+                            height: 36px;
+                            clicked => {
+                                root.cancel-route-edit();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
             visible: root.settings-open;
             x: 0px;
             y: 0px;
@@ -438,8 +891,8 @@ export component MainWindow inherits Window {
             background: #00000066;
 
             Rectangle {
-                width: 460px;
-                height: 410px;
+                width: 480px;
+                height: 430px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.panel-background;
