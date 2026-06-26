@@ -111,15 +111,14 @@ impl TunRuntime {
         let dns = if config.tun.auto_route {
             match DnsRuntime::start(config.proxy.socks_listen) {
                 Ok(dns) => {
-                    if let Err(error) = configure_dns(&interface_name) {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        if let Some(guard) = route_guard.take() {
-                            guard.restore();
-                        }
-                        return Err(error);
-                    }
-                    if let Some(guard) = &mut route_guard {
+                    let dns_configured = configure_dns(&interface_name);
+                    if !dns_configured {
+                        warn!(
+                            interface = %interface_name,
+                            dns = %TUN_DNS,
+                            "failed to configure system DNS for Tun; continuing without DNS hijack"
+                        );
+                    } else if let Some(guard) = &mut route_guard {
                         guard.dns_configured = true;
                     }
                     Some(dns)
@@ -474,17 +473,8 @@ fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured:
 }
 
 #[cfg(target_os = "linux")]
-fn configure_dns(interface_name: &str) -> Result<(), TunError> {
-    let resolver = find_command(&["resolvectl", "systemd-resolve"]).ok_or_else(|| {
-        TunError::Command(
-            "resolvectl/systemd-resolve was not found; cannot configure Tun DNS".into(),
-        )
-    })?;
-    run_command(resolver, &["dns", interface_name, &TUN_DNS.to_string()])?;
-    run_command(resolver, &["domain", interface_name, "~."])?;
-    let _ = run_command(resolver, &["default-route", interface_name, "yes"]);
-    let _ = run_command(resolver, &["flush-caches"]);
-    Ok(())
+fn configure_dns(interface_name: &str) -> bool {
+    configure_resolved_dns(interface_name) || configure_network_manager_dns(interface_name)
 }
 
 #[cfg(target_os = "linux")]
@@ -492,6 +482,53 @@ fn cleanup_dns(interface_name: &str) {
     if let Some(resolver) = find_command(&["resolvectl", "systemd-resolve"]) {
         let _ = run_command(resolver, &["revert", interface_name]);
     }
+    if let Some(nmcli) = find_command(&["nmcli"]) {
+        let _ = run_command(nmcli, &["device", "reapply", interface_name]);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_resolved_dns(interface_name: &str) -> bool {
+    let Some(resolver) = find_command(&["resolvectl", "systemd-resolve"]) else {
+        return false;
+    };
+    if let Err(error) = run_command(resolver, &["dns", interface_name, &TUN_DNS.to_string()]) {
+        warn!(%error, "failed to configure Tun DNS through systemd-resolved");
+        return false;
+    }
+    if let Err(error) = run_command(resolver, &["domain", interface_name, "~."]) {
+        warn!(%error, "failed to configure Tun DNS domain through systemd-resolved");
+        return false;
+    }
+    let _ = run_command(resolver, &["default-route", interface_name, "yes"]);
+    let _ = run_command(resolver, &["flush-caches"]);
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn configure_network_manager_dns(interface_name: &str) -> bool {
+    let Some(nmcli) = find_command(&["nmcli"]) else {
+        return false;
+    };
+    if let Err(error) = run_command(
+        nmcli,
+        &[
+            "device",
+            "modify",
+            interface_name,
+            "ipv4.dns",
+            &TUN_DNS.to_string(),
+            "ipv4.ignore-auto-dns",
+            "yes",
+            "ipv6.ignore-auto-dns",
+            "yes",
+        ],
+    ) {
+        warn!(%error, "failed to configure Tun DNS through NetworkManager");
+        return false;
+    }
+    let _ = run_command(nmcli, &["device", "reapply", interface_name]);
+    true
 }
 
 #[cfg(target_os = "linux")]
@@ -609,8 +646,8 @@ fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured:
 }
 
 #[cfg(windows)]
-fn configure_dns(_interface_name: &str) -> Result<(), TunError> {
-    Ok(())
+fn configure_dns(_interface_name: &str) -> bool {
+    false
 }
 
 #[cfg(windows)]
@@ -654,8 +691,8 @@ fn cleanup_routes(interface_name: &str, node_ip: Option<IpAddr>, dns_configured:
 }
 
 #[cfg(all(not(windows), not(target_os = "linux")))]
-fn configure_dns(_interface_name: &str) -> Result<(), TunError> {
-    Ok(())
+fn configure_dns(_interface_name: &str) -> bool {
+    false
 }
 
 #[cfg(test)]

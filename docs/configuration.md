@@ -345,7 +345,7 @@ tun:
 
 当前 Tun 第一版以全局透明代理为目标：Tun 流量会统一进入本地 SOCKS 并转发到当前活动节点。为避免 RProxy 自己的直连出站流量再次进入 Tun 造成环路，Tun 启用时运行时会按全局代理模式处理 Tun 流量；基于路由规则的 Tun 分流会在后续版本扩展。
 
-Linux 下启用自动路由时，RProxy 会在 Tun 地址 `198.18.0.1:53` 启动一个本地 DNS 代理，并通过 `resolvectl`/`systemd-resolve` 将 Tun 接口 DNS 指向该地址，避免域名先被局域网 DNS 污染后再进入 Tun。当前 DNS 代理会通过本地 SOCKS 将 DNS 查询转发到 `8.8.8.8:53`，并暂时返回空 AAAA 结果以避免未配置 IPv6 Tun 路由时优先连接 IPv6 地址。
+Linux 下启用自动路由时，RProxy 会在 Tun 地址 `198.18.0.1:53` 启动一个本地 DNS 代理，并优先通过 `resolvectl`/`systemd-resolve`，其次通过 `nmcli` 尝试将 Tun 接口 DNS 指向该地址，避免域名先被局域网 DNS 污染后再进入 Tun。如果当前桌面没有启用 systemd-resolved，DNS 自动配置失败不会阻止 Tun 启动，但可能需要手动把系统 DNS 指到 `198.18.0.1`。当前 DNS 代理会通过本地 SOCKS 将 DNS 查询转发到 `8.8.8.8:53`，并暂时返回空 AAAA 结果以避免未配置 IPv6 Tun 路由时优先连接 IPv6 地址。
 
 ## 8. pac
 
