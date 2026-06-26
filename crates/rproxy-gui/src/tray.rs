@@ -358,7 +358,7 @@ mod platform {
         menu.append_items(&[&show, &toggle, &open_pac, &separator, &quit])
             .map_err(|error| io::Error::other(format!("failed to create tray menu: {error}")))?;
 
-        MenuEvent::set_event_handler(Some(move |event| {
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             let event = match event.id().as_ref() {
                 CMD_SHOW => Some(TrayEvent::ShowWindow),
                 CMD_TOGGLE => Some(TrayEvent::ToggleProxy),

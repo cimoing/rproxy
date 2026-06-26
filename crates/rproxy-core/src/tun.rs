@@ -11,9 +11,11 @@ use tracing::{info, warn};
 
 use crate::config::{Config, NodeConfig};
 
+#[cfg(windows)]
 const TUN_ADDR: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 #[cfg(target_os = "linux")]
 const TUN_PREFIX: &str = "198.18.0.1/15";
+#[cfg(windows)]
 const TUN_NETMASK: &str = "255.254.0.0";
 
 #[derive(Debug, Clone)]
