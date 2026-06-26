@@ -40,6 +40,9 @@ fn main() -> anyhow::Result<()> {
     ui.set_route_context_menu_open(false);
     ui.set_context_route_index(-1);
     ui.set_context_route_active(false);
+    ui.set_edit_tun_enabled(false);
+    ui.set_edit_tun_interface_name("rproxy-tun".into());
+    ui.set_edit_tun_auto_route(true);
     ui.set_nodes(ModelRc::new(VecModel::from(Vec::<NodeRow>::new())));
     ui.set_routes(ModelRc::new(VecModel::from(Vec::<RouteRow>::new())));
     ui.set_route_names(ModelRc::new(VecModel::from(Vec::<SharedString>::new())));
@@ -390,6 +393,9 @@ fn main() -> anyhow::Result<()> {
                     if let (Some(ui), Some(settings)) = (ui_weak.upgrade(), settings) {
                         ui.set_edit_pac_enabled(settings.pac_enabled);
                         ui.set_edit_auto_start(settings.auto_start);
+                        ui.set_edit_tun_enabled(settings.tun_enabled);
+                        ui.set_edit_tun_interface_name(settings.tun_interface_name.into());
+                        ui.set_edit_tun_auto_route(settings.tun_auto_route);
                         ui.set_edit_http_listen(settings.http_listen.to_string().into());
                         ui.set_edit_socks_listen(settings.socks_listen.to_string().into());
                         ui.set_edit_pac_listen(settings.pac_listen.to_string().into());
@@ -405,7 +411,14 @@ fn main() -> anyhow::Result<()> {
         let service = service.clone();
         let runtime = Arc::clone(&runtime);
         ui.on_save_settings(
-            move |pac_enabled, auto_start, http_listen, socks_listen, pac_listen| {
+            move |pac_enabled,
+                  auto_start,
+                  tun_enabled,
+                  tun_interface_name,
+                  tun_auto_route,
+                  http_listen,
+                  socks_listen,
+                  pac_listen| {
                 let ui_weak = ui_weak.clone();
                 let service = service.clone();
                 let runtime_for_settings = Arc::clone(&runtime);
@@ -436,6 +449,9 @@ fn main() -> anyhow::Result<()> {
                         .save_settings(
                             pac_enabled,
                             auto_start,
+                            tun_enabled,
+                            tun_interface_name.to_string(),
+                            tun_auto_route,
                             http_listen,
                             socks_listen,
                             pac_listen,
@@ -705,6 +721,9 @@ fn update_settings(ui_weak: slint::Weak<MainWindow>, service: AppService, runtim
             if let (Some(ui), Some(settings)) = (ui_weak.upgrade(), settings) {
                 ui.set_edit_pac_enabled(settings.pac_enabled);
                 ui.set_edit_auto_start(settings.auto_start);
+                ui.set_edit_tun_enabled(settings.tun_enabled);
+                ui.set_edit_tun_interface_name(settings.tun_interface_name.into());
+                ui.set_edit_tun_auto_route(settings.tun_auto_route);
                 ui.set_edit_http_listen(settings.http_listen.to_string().into());
                 ui.set_edit_socks_listen(settings.socks_listen.to_string().into());
                 ui.set_edit_pac_listen(settings.pac_listen.to_string().into());

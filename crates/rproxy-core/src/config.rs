@@ -378,6 +378,12 @@ impl Config {
             }
         }
 
+        if self.tun.enabled && self.tun.interface_name.trim().is_empty() {
+            return Err(ConfigError::Validation(
+                "tun.interface_name is required when Tun is enabled".into(),
+            ));
+        }
+
         Ok(())
     }
 

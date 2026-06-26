@@ -322,7 +322,7 @@ Linux 托盘构建和运行需要桌面环境提供 GTK3、libxdo、libappindica
 
 ## 7. tun
 
-`tun` 配置 Tun 模式。
+`tun` 配置 Tun 模式。当前实现通过托管外部 `tun2socks` 进程接管系统流量，并把透明流量送入 RProxy 本地 SOCKS 入口。
 
 ```yaml
 tun:
@@ -333,11 +333,17 @@ tun:
 
 字段说明：
 
-- `enabled`：是否启用 Tun 模式。阶段一建议保持 `false`。
+- `enabled`：是否启用 Tun 模式。
 - `interface_name`：Tun 虚拟网卡名称。
 - `auto_route`：是否自动配置路由。
 
-Tun 模式属于第二阶段能力。阶段一保留配置字段，便于后续兼容。
+启用 Tun 前需要：
+
+- 安装 `tun2socks`，并确保可在 `PATH` 中找到；也可以通过环境变量 `RPROXY_TUN2SOCKS` 指向可执行文件。
+- Windows 以管理员身份运行，Linux 以 root 或具备网络管理权限的方式运行。
+- 至少配置并启用一个代理节点。
+
+当前 Tun 第一版以全局透明代理为目标：Tun 流量会统一进入本地 SOCKS 并转发到当前活动节点。为避免 RProxy 自己的直连出站流量再次进入 Tun 造成环路，Tun 启用时运行时会按全局代理模式处理 Tun 流量；基于路由规则的 Tun 分流会在后续版本扩展。
 
 ## 8. pac
 

@@ -39,6 +39,9 @@ export component MainWindow inherits Window {
     in-out property <bool> settings-open;
     in-out property <bool> edit-pac-enabled;
     in-out property <bool> edit-auto-start;
+    in-out property <bool> edit-tun-enabled;
+    in-out property <string> edit-tun-interface-name;
+    in-out property <bool> edit-tun-auto-route;
     in-out property <string> edit-http-listen;
     in-out property <string> edit-socks-listen;
     in-out property <string> edit-pac-listen;
@@ -91,7 +94,7 @@ export component MainWindow inherits Window {
     callback save-route(int, string, string, string, bool, string);
     callback cancel-route-edit();
     callback open-settings();
-    callback save-settings(bool, bool, string, string, string);
+    callback save-settings(bool, bool, bool, string, bool, string, string, string);
     callback cancel-settings();
     callback clear-log();
 
@@ -892,7 +895,7 @@ export component MainWindow inherits Window {
 
             Rectangle {
                 width: 480px;
-                height: 430px;
+                height: 560px;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 background: root.panel-background;
@@ -921,6 +924,27 @@ export component MainWindow inherits Window {
                     CheckBox {
                         text: "开机自启动";
                         checked <=> root.edit-auto-start;
+                        vertical-stretch: 0;
+                    }
+
+                    CheckBox {
+                        text: "启用 Tun 模式";
+                        checked <=> root.edit-tun-enabled;
+                        vertical-stretch: 0;
+                    }
+
+                    HorizontalBox {
+                        height: 36px;
+                        vertical-stretch: 0;
+                        spacing: 12px;
+                        Text { text: "Tun 接口"; color: root.primary-text; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                        LineEdit { text <=> root.edit-tun-interface-name; horizontal-stretch: 1; enabled: root.edit-tun-enabled; }
+                    }
+
+                    CheckBox {
+                        text: "Tun 自动配置路由";
+                        checked <=> root.edit-tun-auto-route;
+                        enabled: root.edit-tun-enabled;
                         vertical-stretch: 0;
                     }
                     
@@ -960,7 +984,7 @@ export component MainWindow inherits Window {
                             width: 88px;
                             height: 36px;
                             clicked => {
-                                root.save-settings(root.edit-pac-enabled, root.edit-auto-start, root.edit-http-listen, root.edit-socks-listen, root.edit-pac-listen);
+                                root.save-settings(root.edit-pac-enabled, root.edit-auto-start, root.edit-tun-enabled, root.edit-tun-interface-name, root.edit-tun-auto-route, root.edit-http-listen, root.edit-socks-listen, root.edit-pac-listen);
                             }
                         }
 

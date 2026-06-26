@@ -15,9 +15,10 @@ use outbound::{
 };
 
 use crate::{
-    config::{Config, NodeConfig, RouteAction},
+    config::{Config, NodeConfig, RouteAction, RoutingMode},
     pac,
     routing::Router,
+    tun::{TunError, TunRuntime, TunStatus},
 };
 
 #[derive(Debug, Clone)]
@@ -27,12 +28,15 @@ pub struct RuntimeStatus {
     pub socks_listen: SocketAddr,
     pub pac_listen: Option<SocketAddr>,
     pub active_node: Option<String>,
+    pub tun: Option<TunStatus>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Tun(#[from] TunError),
 }
 
 pub struct ProxyRuntime {
@@ -41,6 +45,7 @@ pub struct ProxyRuntime {
     http: Option<ListenerHandle>,
     socks: Option<ListenerHandle>,
     pac: Option<pac::PacServer>,
+    tun: Option<TunRuntime>,
 }
 
 struct ListenerHandle {
@@ -50,13 +55,14 @@ struct ListenerHandle {
 
 impl ProxyRuntime {
     pub fn new(config: Config) -> Self {
-        let router = Router::from_config(&config);
+        let router = Router::from_config(&runtime_routing_config(&config));
         Self {
             config,
             router,
             http: None,
             socks: None,
             pac: None,
+            tun: None,
         }
     }
 
@@ -87,6 +93,8 @@ impl ProxyRuntime {
             self.pac = Some(pac::PacServer::start(self.config.pac.listen, script).await?);
         }
 
+        self.tun = TunRuntime::start(&self.config)?;
+
         if let Some(node) = self.config.active_node() {
             info!(
                 protocol = ?node.protocol,
@@ -100,6 +108,10 @@ impl ProxyRuntime {
     }
 
     pub async fn stop(&mut self) {
+        if let Some(mut tun) = self.tun.take() {
+            tun.stop();
+        }
+
         if let Some(handle) = self.http.take() {
             let _ = handle.shutdown.send(());
             let _ = handle.task.await;
@@ -122,16 +134,27 @@ impl ProxyRuntime {
             socks_listen: self.config.proxy.socks_listen,
             pac_listen: self.pac.as_ref().map(pac::PacServer::listen),
             active_node: self.config.active_node().map(|node| node.name.clone()),
+            tun: self.tun.as_ref().map(TunRuntime::status),
         }
     }
 }
 
 impl Drop for ProxyRuntime {
     fn drop(&mut self) {
-        if self.http.is_some() || self.socks.is_some() || self.pac.is_some() {
+        if self.http.is_some() || self.socks.is_some() || self.pac.is_some() || self.tun.is_some() {
             warn!("ProxyRuntime dropped while still running");
         }
     }
+}
+
+fn runtime_routing_config(config: &Config) -> Config {
+    let mut config = config.clone();
+    if config.tun.enabled {
+        config.routing.mode = RoutingMode::GlobalProxy;
+        config.routing.default_action = RouteAction::Proxy;
+        config.routing.rules.clear();
+    }
+    config
 }
 
 async fn start_http_listener(

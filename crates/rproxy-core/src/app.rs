@@ -23,6 +23,9 @@ pub struct AppStatus {
 pub struct AppSettings {
     pub pac_enabled: bool,
     pub auto_start: bool,
+    pub tun_enabled: bool,
+    pub tun_interface_name: String,
+    pub tun_auto_route: bool,
     pub http_listen: SocketAddr,
     pub socks_listen: SocketAddr,
     pub pac_listen: SocketAddr,
@@ -139,6 +142,9 @@ impl AppService {
             .map(|config| AppSettings {
                 pac_enabled: config.pac.enabled,
                 auto_start: config.system.auto_start,
+                tun_enabled: config.tun.enabled,
+                tun_interface_name: config.tun.interface_name.clone(),
+                tun_auto_route: config.tun.auto_route,
                 http_listen: config.proxy.http_listen,
                 socks_listen: config.proxy.socks_listen,
                 pac_listen: config.pac.listen,
@@ -170,6 +176,9 @@ impl AppService {
         &self,
         pac_enabled: bool,
         auto_start: bool,
+        tun_enabled: bool,
+        tun_interface_name: String,
+        tun_auto_route: bool,
         http_listen: SocketAddr,
         socks_listen: SocketAddr,
         pac_listen: SocketAddr,
@@ -178,6 +187,9 @@ impl AppService {
         let mut config = state.config.clone().ok_or(AppError::NoConfig)?;
         config.pac.enabled = pac_enabled;
         config.system.auto_start = auto_start;
+        config.tun.enabled = tun_enabled;
+        config.tun.interface_name = tun_interface_name;
+        config.tun.auto_route = tun_auto_route;
         config.proxy.http_listen = http_listen;
         config.proxy.socks_listen = socks_listen;
         config.pac.listen = pac_listen;
@@ -190,7 +202,7 @@ impl AppService {
         let _ = Autostart::set_enabled(config.system.auto_start);
         state.config = Some(config);
         state.status.message = if state.status.running {
-            "Settings saved; restart proxy to apply PAC changes".into()
+            "Settings saved; restart proxy to apply runtime changes".into()
         } else {
             "Settings saved".into()
         };
@@ -375,9 +387,14 @@ impl AppService {
         let _ = Autostart::set_enabled(config.system.auto_start);
 
         let runtime_status = runtime.status();
+        let message = if let Some(tun) = &runtime_status.tun {
+            format!("Proxy started with Tun {}", tun.interface_name)
+        } else {
+            "Proxy started".into()
+        };
         state.status = AppStatus {
             running: true,
-            message: "Proxy started".into(),
+            message,
             runtime: Some(runtime_status),
         };
         state.runtime = Some(runtime);
