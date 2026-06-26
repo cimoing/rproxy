@@ -48,13 +48,14 @@ fn main() -> anyhow::Result<()> {
     {
         let ui_weak = ui.as_weak();
         ui.window().on_close_requested(move || {
-            if ui_weak.upgrade().is_some() {
+            if let Some(ui) = ui_weak.upgrade() {
+                let _ = ui.hide();
                 update_status(
                     ui_weak.clone(),
                     UiStatus::message("Window hidden to tray".into()),
                 );
             }
-            CloseRequestResponse::HideWindow
+            CloseRequestResponse::KeepWindowShown
         });
     }
 
@@ -512,7 +513,8 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    ui.run().context("failed to run UI")
+    ui.show().context("failed to show UI")?;
+    slint::run_event_loop_until_quit().context("failed to run UI")
 }
 
 fn install_tray(
