@@ -13,13 +13,18 @@ Current focus:
 - PAC generation and local PAC serving.
 - Windows system proxy, tray, and autostart integration.
 - Linux GNOME/Plasma system proxy, tray, and XDG autostart integration.
-- Tun mode via a managed `hev-socks5-tunnel` process.
+- Tun mode via a statically linked `hev-socks5-tunnel` C library.
 
 Linux tray support uses GTK and AppIndicator. Install the desktop development packages before
 building on Linux, for example `libgtk-3-dev libxdo-dev libappindicator3-dev` on Debian/Ubuntu.
 
-Tun mode requires `hev-socks5-tunnel` in `PATH`, or set `RPROXY_HEV_SOCKS5_TUNNEL` to the executable path. It also
+Tun mode builds a vendored `hev-socks5-tunnel` C static library at build time. Install `make` and a
+C toolchain first; set `RPROXY_HEV_MAKE`, `RPROXY_HEV_CC`, or `RPROXY_HEV_AR` if those tools are not
+named `make`, `gcc`, and `ar`. It also
 requires administrator/root permissions to create the virtual interface and adjust routes.
+On Windows, Hev uses Wintun at runtime; bundle
+`crates/rproxy-core/vendor/hev-socks5-tunnel/third-part/wintun/bin/wintun.dll` next to the final
+executable.
 
 ## Run
 

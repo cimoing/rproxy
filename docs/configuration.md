@@ -322,7 +322,7 @@ Linux 托盘构建和运行需要桌面环境提供 GTK3、libxdo、libappindica
 
 ## 7. tun
 
-`tun` 配置 Tun 模式。当前实现通过托管外部 `hev-socks5-tunnel` 进程接管系统流量，并把透明流量送入 RProxy 本地 SOCKS 入口。
+`tun` 配置 Tun 模式。当前实现通过静态链接 `hev-socks5-tunnel` C 库接管系统流量，并把透明流量送入 RProxy 本地 SOCKS 入口。
 
 ```yaml
 tun:
@@ -339,7 +339,8 @@ tun:
 
 启用 Tun 前需要：
 
-- 安装 `hev-socks5-tunnel`，并确保可在 `PATH` 中找到；也可以通过环境变量 `RPROXY_HEV_SOCKS5_TUNNEL` 指向可执行文件。
+- 项目内已 vendor `hev-socks5-tunnel` C 源码，构建时会编译为静态库；构建环境需要 `make` 和 C 工具链。若工具名不是默认的 `make`、`gcc`、`ar`，可以通过 `RPROXY_HEV_MAKE`、`RPROXY_HEV_CC`、`RPROXY_HEV_AR` 指定。
+- Windows 运行时还需要 Wintun；项目内已包含 `crates/rproxy-core/vendor/hev-socks5-tunnel/third-part/wintun/bin/wintun.dll`，发布时需要放在最终可执行文件同目录。
 - Windows 以管理员身份运行，Linux 以 root 或具备网络管理权限的方式运行。
 - 至少配置并启用一个代理节点。
 

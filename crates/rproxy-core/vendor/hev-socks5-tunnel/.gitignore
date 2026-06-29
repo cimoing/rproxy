@@ -1,0 +1,6 @@
+bin/
+build/
+third-part/*/bin/
+third-part/*/build/
+!third-part/wintun/bin/
+!third-part/wintun/bin/wintun.dll
