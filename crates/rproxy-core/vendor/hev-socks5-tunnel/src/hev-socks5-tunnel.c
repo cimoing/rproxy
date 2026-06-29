@@ -485,6 +485,7 @@ gateway_fini (void)
 static int
 event_task_init (void)
 {
+    int stack_size;
     int nonblock = 1;
     int res;
 
@@ -500,7 +501,8 @@ event_task_init (void)
         return -1;
     }
 
-    task_event = hev_task_new (-1);
+    stack_size = hev_config_get_misc_task_stack_size ();
+    task_event = hev_task_new (stack_size);
     if (!task_event) {
         LOG_E ("socks5 tunnel task event");
         return -1;
@@ -530,7 +532,10 @@ event_task_fini (void)
 static int
 lwip_io_task_init (void)
 {
-    task_lwip_io = hev_task_new (-1);
+    int stack_size;
+
+    stack_size = hev_config_get_misc_task_stack_size ();
+    task_lwip_io = hev_task_new (stack_size);
     if (!task_lwip_io) {
         LOG_E ("socks5 tunnel task lwip");
         return -1;
@@ -552,7 +557,10 @@ lwip_io_task_fini (void)
 static int
 lwip_timer_task_init (void)
 {
-    task_lwip_timer = hev_task_new (-1);
+    int stack_size;
+
+    stack_size = hev_config_get_misc_task_stack_size ();
+    task_lwip_timer = hev_task_new (stack_size);
     if (!task_lwip_timer) {
         LOG_E ("socks5 tunnel task timer");
         return -1;

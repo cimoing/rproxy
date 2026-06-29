@@ -98,17 +98,18 @@ export component MainWindow inherits Window {
     callback cancel-settings();
     callback clear-log();
 
-    property <brush> primary-text: Palette.foreground;
-    property <brush> secondary-text: Palette.foreground;
-    property <brush> panel-background: Palette.background;
-    property <brush> page-background: Palette.alternate-background;
-    property <brush> row-background: Palette.background;
-    property <brush> row-hover-background: Palette.alternate-background;
-    property <brush> border-color: Palette.border;
-    property <brush> status-text: Palette.selection-background;
+    property <brush> primary-text: #f3f6f8;
+    property <brush> secondary-text: #c9d1d8;
+    property <brush> panel-background: #24272b;
+    property <brush> page-background: #1f2226;
+    property <brush> row-background: #24272b;
+    property <brush> row-hover-background: #30363c;
+    property <brush> border-color: #3a3f45;
+    property <brush> status-text: #93a7b3;
     property <brush> accent-color: #27a9e8;
-    property <brush> toolbar-background: #f7f7f7;
-    property <length> node-table-width: 980px;
+    property <brush> toolbar-background: #181b1f;
+    property <brush> control-background: #2d3136;
+    property <length> node-table-width: root.width;
     property <length> node-row-height: 30px;
     property <bool> proxy-protocol: root.edit-protocol == "vmess";
     property <bool> auth-protocol: root.edit-protocol == "http" || root.edit-protocol == "socks5";
@@ -236,12 +237,12 @@ export component MainWindow inherits Window {
                             spacing: 0px;
 
                             Text { text: ""; color: root.primary-text; width: 36px; vertical-alignment: center; }
-                            Text { text: "类型"; font-weight: 700; color: root.primary-text; width: 96px; vertical-alignment: center; }
-                            Text { text: "别名"; font-weight: 700; color: root.primary-text; width: 180px; vertical-alignment: center; }
-                            Text { text: "地址"; font-weight: 700; color: root.primary-text; width: 430px; vertical-alignment: center; }
-                            Text { text: "端口"; font-weight: 700; color: root.primary-text; width: 80px; vertical-alignment: center; }
-                            Text { text: "传输协议"; font-weight: 700; color: root.primary-text; width: 112px; vertical-alignment: center; }
-                            Text { text: "TLS"; font-weight: 700; color: root.primary-text; width: 46px; vertical-alignment: center; }
+                            Text { text: "类型"; font-weight: 700; color: root.primary-text; width: 88px; vertical-alignment: center; }
+                            Text { text: "别名"; font-weight: 700; color: root.primary-text; width: 170px; vertical-alignment: center; }
+                            Text { text: "地址"; font-weight: 700; color: root.primary-text; width: 350px; vertical-alignment: center; }
+                            Text { text: "端口"; font-weight: 700; color: root.primary-text; width: 72px; vertical-alignment: center; }
+                            Text { text: "传输协议"; font-weight: 700; color: root.primary-text; width: 96px; vertical-alignment: center; }
+                            Text { text: "TLS"; font-weight: 700; color: root.primary-text; width: 42px; vertical-alignment: center; }
                         }
 
                         Rectangle {
@@ -259,12 +260,12 @@ export component MainWindow inherits Window {
                                 spacing: 0px;
 
                                 Text { text: node.active ? "●" : ""; color: root.primary-text; width: 36px; vertical-alignment: center; }
-                                Text { text: node.protocol; color: root.primary-text; width: 96px; vertical-alignment: center; }
-                                Text { text: node.name; color: root.primary-text; width: 180px; vertical-alignment: center; overflow: elide; }
-                                Text { text: node.server; color: root.primary-text; width: 430px; vertical-alignment: center; overflow: elide; }
-                                Text { text: node.port; color: root.primary-text; width: 80px; vertical-alignment: center; }
-                                Text { text: node.transport; color: root.primary-text; width: 112px; vertical-alignment: center; }
-                                Text { text: node.tls; color: root.primary-text; width: 46px; vertical-alignment: center; }
+                                Text { text: node.protocol; color: root.primary-text; width: 88px; vertical-alignment: center; }
+                                Text { text: node.name; color: root.primary-text; width: 170px; vertical-alignment: center; overflow: elide; }
+                                Text { text: node.server; color: root.primary-text; width: 350px; vertical-alignment: center; overflow: elide; }
+                                Text { text: node.port; color: root.primary-text; width: 72px; vertical-alignment: center; }
+                                Text { text: node.transport; color: root.primary-text; width: 96px; vertical-alignment: center; overflow: elide; }
+                                Text { text: node.tls; color: root.primary-text; width: 42px; vertical-alignment: center; }
                             }
 
                             touch := TouchArea {
@@ -297,7 +298,9 @@ export component MainWindow inherits Window {
 
                     Rectangle {
                         width: 86px;
-                        background: root.toolbar-background;
+                        background: root.panel-background;
+                        border-color: root.border-color;
+                        border-width: 0px;
 
                         VerticalBox {
                             spacing: 0px;
@@ -326,6 +329,7 @@ export component MainWindow inherits Window {
 
                             Button {
                                 text: "清空";
+                                width: 96px;
                                 height: 30px;
                                 vertical-stretch: 0;
                                 clicked => {
@@ -334,12 +338,12 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        Text {
+                        TextEdit {
                             text: root.log-text;
-                            color: root.secondary-text;
+                            read-only: true;
                             font-size: 12px;
+                            horizontal-stretch: 1;
                             vertical-stretch: 1;
-                            overflow: elide;
                         }
                     }
                 }
@@ -378,7 +382,7 @@ export component MainWindow inherits Window {
                         Rectangle {
                             width: 170px;
                             height: 30px;
-                            background: root.row-background;
+                            background: root.control-background;
                             border-color: root.border-color;
                             border-width: 1px;
                             border-radius: 4px;
@@ -403,7 +407,7 @@ export component MainWindow inherits Window {
                         Rectangle {
                             width: 170px;
                             height: 30px;
-                            background: root.row-background;
+                            background: root.control-background;
                             border-color: root.border-color;
                             border-width: 1px;
                             border-radius: 4px;

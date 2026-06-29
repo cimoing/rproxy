@@ -147,15 +147,17 @@ hev_tunnel_get_index (void)
 int
 hev_tunnel_add_task (int fd, HevTask *task)
 {
-    void *handle = hev_wintun_session_get_read_wait_event (session);
-    return hev_task_add_whandle (task, handle);
+    (void)fd;
+    (void)task;
+    return 0;
 }
 
 void
 hev_tunnel_del_task (int fd, HevTask *task)
 {
-    void *handle = hev_wintun_session_get_read_wait_event (session);
-    hev_task_del_whandle (task, handle);
+    (void)fd;
+    (void)task;
+    return;
 }
 
 struct pbuf *
@@ -166,17 +168,18 @@ hev_tunnel_read (int fd, int mtu, HevTaskIOYielder yielder, void *yielder_data)
     int spin = 0;
     int size;
 
+    (void)yielder;
+    (void)yielder_data;
+
 retry:
     packet = hev_wintun_session_receive (session, &size);
     if (!packet) {
         if (hev_wintun_get_last_error () == HEV_WINTUN_EAGAIN) {
             if (spin++ < 1000) {
                 hev_task_yield (HEV_TASK_YIELD);
-            } else if (yielder) {
-                if (yielder (HEV_TASK_WAITIO, yielder_data))
-                    return NULL;
             } else {
-                hev_task_yield (HEV_TASK_WAITIO);
+                spin = 0;
+                hev_task_yield (HEV_TASK_YIELD);
             }
             goto retry;
         } else {

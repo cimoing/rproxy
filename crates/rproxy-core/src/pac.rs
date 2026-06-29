@@ -18,7 +18,12 @@ pub struct PacServer {
 
 impl PacServer {
     pub async fn start(listen: SocketAddr, script: String) -> std::io::Result<Self> {
-        let listener = TcpListener::bind(listen).await?;
+        let listener = TcpListener::bind(listen).await.map_err(|error| {
+            std::io::Error::new(
+                error.kind(),
+                format!("failed to bind PAC server listener {listen}: {error}"),
+            )
+        })?;
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
         let script = Arc::new(script);
         let task = tokio::spawn(async move {

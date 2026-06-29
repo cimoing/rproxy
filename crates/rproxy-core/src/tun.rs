@@ -2,6 +2,7 @@ use std::{
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     os::raw::{c_int, c_uint},
+    path::PathBuf,
     process::Command,
     sync::mpsc,
     thread,
@@ -32,6 +33,7 @@ const PROXY_DNS_ROUTE_IPS: &[Ipv4Addr] = &[
     Ipv4Addr::new(208, 67, 222, 222),
     Ipv4Addr::new(208, 67, 220, 220),
 ];
+const HEV_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct TunStatus {
@@ -228,23 +230,26 @@ impl DnsRuntime {
 
 impl HevTunnelRuntime {
     fn start(interface_name: &str, socks_listen: SocketAddr) -> Result<Self, TunError> {
+        validate_wintun_runtime()?;
+
         let tunnel_config = hev_config(interface_name, socks_listen);
-        let thread = thread::spawn(move || unsafe {
-            hev_socks5_tunnel_main_from_str(
-                tunnel_config.as_ptr(),
-                tunnel_config.len() as c_uint,
-                -1,
-            )
-        });
+        let thread = thread::Builder::new()
+            .name("rproxy-hev-socks5-tunnel".into())
+            .stack_size(HEV_THREAD_STACK_SIZE)
+            .spawn(move || unsafe {
+                hev_socks5_tunnel_main_from_str(
+                    tunnel_config.as_ptr(),
+                    tunnel_config.len() as c_uint,
+                    -1,
+                )
+            })?;
 
         thread::sleep(Duration::from_millis(500));
         if thread.is_finished() {
             let status = thread
                 .join()
                 .map_err(|_| TunError::Command("hev-socks5-tunnel thread panicked".into()))?;
-            return Err(TunError::Command(format!(
-                "hev-socks5-tunnel C library exited during startup with status {status}"
-            )));
+            return Err(hev_startup_error(status));
         }
 
         Ok(Self {
@@ -271,6 +276,51 @@ impl HevTunnelRuntime {
             }
         }
     }
+}
+
+fn hev_startup_error(status: c_int) -> TunError {
+    if cfg!(windows) && status == -5 {
+        return TunError::Command(
+            "hev-socks5-tunnel failed to initialize Wintun (status -5); ensure wintun.dll is beside rproxy-gui.exe, run RProxy as administrator, and remove any stale adapter with the same Tun interface name if startup still fails".into(),
+        );
+    }
+
+    TunError::Command(format!(
+        "hev-socks5-tunnel C library exited during startup with status {status}"
+    ))
+}
+
+#[cfg(windows)]
+fn validate_wintun_runtime() -> Result<(), TunError> {
+    let mut candidates = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("wintun.dll"));
+        }
+    }
+
+    if let Some(system_root) = std::env::var_os("SystemRoot") {
+        candidates.push(PathBuf::from(system_root).join("System32/wintun.dll"));
+    }
+
+    if candidates.iter().any(|path| path.is_file()) {
+        return Ok(());
+    }
+
+    let expected = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(TunError::Command(format!(
+        "wintun.dll not found; place the vendored wintun.dll beside rproxy-gui.exe. Checked: {expected}"
+    )))
+}
+
+#[cfg(not(windows))]
+fn validate_wintun_runtime() -> Result<(), TunError> {
+    Ok(())
 }
 
 fn resolve_dns_query(
@@ -480,7 +530,7 @@ fn resolve_node_ip(node: &NodeConfig) -> Result<IpAddr, TunError> {
 
 fn hev_config(interface_name: &str, socks_listen: SocketAddr) -> String {
     format!(
-        "tunnel:\n  name: {}\n  mtu: 8500\n  multi-queue: false\n  ipv4: {}\nsocks5:\n  address: {}\n  port: {}\n  udp: 'tcp'\nmisc:\n  log-file: stderr\n  log-level: warn\n",
+        "tunnel:\n  name: {}\n  mtu: 8500\n  multi-queue: false\n  ipv4: {}\nsocks5:\n  address: {}\n  port: {}\n  udp: 'tcp'\nmisc:\n  task-stack-size: 262144\n  log-file: stderr\n  log-level: warn\n",
         yaml_quote(interface_name),
         yaml_quote(&TUN_DNS.to_string()),
         yaml_quote(&socks_listen.ip().to_string()),

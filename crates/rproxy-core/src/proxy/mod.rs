@@ -162,7 +162,12 @@ async fn start_http_listener(
     router: Router,
     active_node: Option<NodeConfig>,
 ) -> Result<ListenerHandle, std::io::Error> {
-    let listener = TcpListener::bind(listen).await?;
+    let listener = TcpListener::bind(listen).await.map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("failed to bind HTTP proxy listener {listen}: {error}"),
+        )
+    })?;
     let (shutdown, mut shutdown_rx) = oneshot::channel();
     let router = Arc::new(router);
     let active_node = Arc::new(active_node);
@@ -224,7 +229,12 @@ async fn start_socks_listener(
     router: Router,
     active_node: Option<NodeConfig>,
 ) -> Result<ListenerHandle, std::io::Error> {
-    let listener = TcpListener::bind(listen).await?;
+    let listener = TcpListener::bind(listen).await.map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("failed to bind SOCKS proxy listener {listen}: {error}"),
+        )
+    })?;
     let (shutdown, mut shutdown_rx) = oneshot::channel();
     let router = Arc::new(Mutex::new(router));
     let active_node = Arc::new(active_node);

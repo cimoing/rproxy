@@ -1,6 +1,7 @@
 use std::{
-    env, fs,
+    env,
     ffi::OsString,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -22,6 +23,7 @@ fn main() {
 
     build_vendored_hev(&vendor_dir);
     link_vendored_hev(&vendor_dir);
+    copy_wintun_runtime(&vendor_dir);
 }
 
 fn build_vendored_hev(vendor_dir: &Path) {
@@ -57,6 +59,9 @@ fn build_vendored_hev(vendor_dir: &Path) {
         command.arg(format!("CFLAGS={cflags}"));
     }
 
+    let signature = hev_build_signature(&make, &cflags);
+    clean_vendored_hev_if_needed(vendor_dir, &signature);
+
     let Ok(status) = command.status() else {
         println!(
             "cargo:warning=failed to start {make} for vendored hev-socks5-tunnel. \
@@ -69,6 +74,7 @@ fn build_vendored_hev(vendor_dir: &Path) {
         panic!("vendored hev-socks5-tunnel static build failed with status {status}");
     }
 
+    write_hev_build_signature(vendor_dir, &signature);
     mirror_msvc_lib_names(vendor_dir);
 }
 
@@ -109,6 +115,83 @@ fn add_parent_dir(paths: &mut Vec<PathBuf>, tool: &Path) {
     if let Some(parent) = tool.parent() {
         paths.push(parent.to_path_buf());
     }
+}
+
+fn hev_build_signature(make: &str, cflags: &str) -> String {
+    format!(
+        "target={}\nenv={}\nmake={make}\ncc={}\nar={}\ncflags={cflags}\nsource={}\n",
+        env::var("TARGET").unwrap_or_default(),
+        env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default(),
+        env::var("RPROXY_HEV_CC").unwrap_or_default(),
+        env::var("RPROXY_HEV_AR").unwrap_or_default(),
+        hev_source_signature(),
+    )
+}
+
+fn hev_source_signature() -> String {
+    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    ["src/hev-socks5-tunnel.c", "src/hev-tunnel-windows.c"]
+        .into_iter()
+        .map(|source| {
+            let path = manifest_dir.join(HEV_VENDOR_DIR).join(source);
+            let modified = fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_nanos().to_string())
+                .unwrap_or_else(|| "unknown".into());
+            format!("{source}:{modified}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn clean_vendored_hev_if_needed(vendor_dir: &Path, signature: &str) {
+    let stamp = vendor_dir.join("build/.rproxy-build-signature");
+    if fs::read_to_string(&stamp)
+        .map(|current| current == signature)
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    for dir in [
+        vendor_dir.join("build"),
+        vendor_dir.join("bin"),
+        vendor_dir.join("third-part/yaml/build"),
+        vendor_dir.join("third-part/yaml/bin"),
+        vendor_dir.join("third-part/lwip/build"),
+        vendor_dir.join("third-part/lwip/bin"),
+        vendor_dir.join("third-part/hev-task-system/build"),
+        vendor_dir.join("third-part/hev-task-system/bin"),
+    ] {
+        if dir.exists() {
+            fs::remove_dir_all(&dir).unwrap_or_else(|error| {
+                panic!(
+                    "failed to remove stale vendored build dir {}: {error}",
+                    dir.display()
+                )
+            });
+        }
+    }
+}
+
+fn write_hev_build_signature(vendor_dir: &Path, signature: &str) {
+    let stamp = vendor_dir.join("build/.rproxy-build-signature");
+    if let Some(parent) = stamp.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|error| {
+            panic!(
+                "failed to create vendored build stamp dir {}: {error}",
+                parent.display()
+            )
+        });
+    }
+    fs::write(&stamp, signature).unwrap_or_else(|error| {
+        panic!(
+            "failed to write vendored build stamp {}: {error}",
+            stamp.display()
+        )
+    });
 }
 
 fn link_vendored_hev(vendor_dir: &Path) {
@@ -174,4 +257,35 @@ fn mirror_msvc_lib_names(vendor_dir: &Path) {
             });
         }
     }
+}
+
+fn copy_wintun_runtime(vendor_dir: &Path) {
+    if env::var("CARGO_CFG_WINDOWS").is_err() {
+        return;
+    }
+
+    let source = vendor_dir.join("third-part/wintun/bin/wintun.dll");
+    println!("cargo:rerun-if-changed={}", source.display());
+    if !source.exists() {
+        println!(
+            "cargo:warning=vendored wintun.dll was not found at {}; Tun mode will need wintun.dll beside the executable",
+            source.display()
+        );
+        return;
+    }
+
+    let Ok(out_dir) = env::var("OUT_DIR").map(PathBuf::from) else {
+        return;
+    };
+    let Some(profile_dir) = out_dir.ancestors().nth(3) else {
+        return;
+    };
+    let target = profile_dir.join("wintun.dll");
+    fs::copy(&source, &target).unwrap_or_else(|error| {
+        panic!(
+            "failed to copy {} to {}: {error}",
+            source.display(),
+            target.display()
+        )
+    });
 }
