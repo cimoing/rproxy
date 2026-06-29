@@ -8,6 +8,11 @@
  */
 
 #include <unistd.h>
+#if defined(_WIN32) || defined(_WIN64)
+#include <fcntl.h>
+#include <stdlib.h>
+#define pipe(fds) _pipe ((fds), 4096, _O_BINARY)
+#endif
 #include <sys/ioctl.h>
 
 #include "lib/misc/hev-compiler.h"

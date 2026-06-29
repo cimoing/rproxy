@@ -12,6 +12,7 @@
 
 #include <io.h>
 #include <poll.h>
+#include <stdint.h>
 #include <pthread.h>
 
 #include "lib/rbtree/hev-rbtree.h"
@@ -49,7 +50,7 @@ struct _HevTaskIOReactorSetupEvent
 {
     HevTaskIOReactorOperation op;
 
-    long handle;
+    intptr_t handle;
     int events;
     void *data;
 };
@@ -66,7 +67,8 @@ int hev_task_io_reactor_wait (HevTaskIOReactor *self,
 
 static inline void
 hev_task_io_reactor_setup_event_set (HevTaskIOReactorSetupEvent *event,
-                                     long handle, HevTaskIOReactorOperation op,
+                                     intptr_t handle,
+                                     HevTaskIOReactorOperation op,
                                      unsigned int events, void *data)
 {
     event->op = op;
@@ -101,7 +103,7 @@ hev_task_io_reactor_setup_event_whandle_gen (HevTaskIOReactorSetupEvent *events,
                                              HevTaskIOReactorOperation op,
                                              void *data)
 {
-    hev_task_io_reactor_setup_event_set (events, (long)handle, op, 0, data);
+    hev_task_io_reactor_setup_event_set (events, (intptr_t)handle, op, 0, data);
 
     return 1;
 }

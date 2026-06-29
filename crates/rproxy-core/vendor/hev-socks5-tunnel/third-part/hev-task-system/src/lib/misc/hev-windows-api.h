@@ -13,6 +13,12 @@
 #include <winerror.h>
 #include <handleapi.h>
 #include <minwinbase.h>
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#include <io.h>
+#include <winsock2.h>
+#include <windows.h>
+#define get_osfhandle _get_osfhandle
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +48,7 @@ extern "C" {
 #define FD_CLOSE (1 << 5)
 #endif
 
+#if !defined(__MINGW32__) && !defined(__MINGW64__)
 typedef struct _WSANETWORKEVENTS
 {
     int lNetworkEvents;
@@ -69,6 +76,7 @@ BOOL RegisterWaitForSingleObject (PHANDLE, HANDLE, WAITORTIMERCALLBACK, PVOID,
                                   ULONG, ULONG);
 
 BOOL UnregisterWaitEx (HANDLE, HANDLE);
+#endif
 
 #ifdef __cplusplus
 }

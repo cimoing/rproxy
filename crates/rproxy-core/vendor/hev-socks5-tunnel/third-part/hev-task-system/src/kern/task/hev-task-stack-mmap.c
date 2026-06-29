@@ -8,14 +8,16 @@
  */
 
 #include <unistd.h>
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <sys/mman.h>
+#endif
 
 #include "lib/misc/hev-compiler.h"
 #include "mem/api/hev-memory-allocator-api.h"
 
 #include "hev-task-stack.h"
 
-#if CONFIG_STACK_BACKEND == STACK_MMAP
+#if CONFIG_STACK_BACKEND == STACK_MMAP && !defined(_WIN32) && !defined(_WIN64)
 
 #ifndef MAP_STACK
 #define MAP_STACK (0)
@@ -84,4 +86,4 @@ hev_task_stack_get_bottom (HevTaskStack *self)
     return self->stack + self->size;
 }
 
-#endif /* CONFIG_STACK_BACKEND == STACK_MMAP */
+#endif /* CONFIG_STACK_BACKEND == STACK_MMAP && !defined(_WIN32) && !defined(_WIN64) */

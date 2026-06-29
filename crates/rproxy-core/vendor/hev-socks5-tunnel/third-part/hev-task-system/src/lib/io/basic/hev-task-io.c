@@ -24,6 +24,13 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
+#if defined(_WIN32) || defined(_WIN64)
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0
+#endif
+#define openat(dirfd, pathname, flags, ...) open ((pathname), (flags), ##__VA_ARGS__)
+#endif
+
 #include "kern/task/hev-task.h"
 #include "lib/io/buffer/hev-circular-buffer.h"
 #include "lib/misc/hev-compiler.h"

@@ -638,7 +638,9 @@ hev_socks5_tunnel_init (int tun_fd)
     if (res < 0)
         goto exit;
 
+#ifdef SIGPIPE
     signal (SIGPIPE, SIG_IGN);
+#endif
 
     hev_task_mutex_init (&mutex);
 

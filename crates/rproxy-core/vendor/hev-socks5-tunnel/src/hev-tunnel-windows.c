@@ -21,6 +21,10 @@
 
 #include "hev-tunnel.h"
 
+#ifndef IFNAMSIZ
+#define IFNAMSIZ 64
+#endif
+
 typedef struct _HevPBuf HevPBuf;
 
 struct _HevPBuf

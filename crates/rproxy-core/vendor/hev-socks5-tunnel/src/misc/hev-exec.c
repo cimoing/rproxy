@@ -10,7 +10,9 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <sys/wait.h>
+#endif
 
 #if defined(__APPLE__)
 #include <Availability.h>
@@ -22,7 +24,7 @@
 
 #include "hev-exec.h"
 
-#if TARGET_OS_TV
+#if defined(_WIN32) || defined(_WIN64) || TARGET_OS_TV
 void
 hev_exec_run (const char *script_path, const char *tun_name,
               const char *tun_index, int wait)

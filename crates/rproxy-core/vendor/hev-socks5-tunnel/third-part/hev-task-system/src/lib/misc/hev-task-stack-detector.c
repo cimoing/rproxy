@@ -24,6 +24,24 @@
 
 #include "hev-task-stack-detector.h"
 
+#if defined(_WIN32) || defined(_WIN64)
+struct _HevTaskStackDetector
+{
+    int unused;
+};
+
+HevTaskStackDetector *
+hev_task_stack_detector_new (void)
+{
+    return malloc (sizeof (HevTaskStackDetector));
+}
+
+void
+hev_task_stack_detector_destroy (HevTaskStackDetector *self)
+{
+    free (self);
+}
+#else
 struct _HevTaskStackDetector
 {
     struct sigaction bus_sa;
@@ -119,3 +137,4 @@ hev_task_stack_detector_destroy (HevTaskStackDetector *self)
     setaltstack (&self->oss, NULL);
     free (self);
 }
+#endif

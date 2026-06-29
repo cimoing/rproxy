@@ -11,7 +11,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/socket.h>
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <sys/resource.h>
+#endif
 
 #if defined(__APPLE__)
 #include <Availability.h>
@@ -43,7 +45,7 @@ run_as_daemon (const char *pid_file)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#if !(TARGET_OS_TV)
+#if !defined(_WIN32) && !defined(_WIN64) && !(TARGET_OS_TV)
     if (daemon (0, 0)) {
         /* ignore return value */
     }
@@ -57,6 +59,10 @@ run_as_daemon (const char *pid_file)
 int
 set_limit_nofile (int limit_nofile)
 {
+#if defined(_WIN32) || defined(_WIN64)
+    (void)limit_nofile;
+    return 0;
+#else
     struct rlimit limit;
     int res;
 
@@ -72,6 +78,7 @@ set_limit_nofile (int limit_nofile)
     limit.rlim_cur = limit_nofile;
     limit.rlim_max = limit_nofile;
     return setrlimit (RLIMIT_NOFILE, &limit);
+#endif
 }
 
 int

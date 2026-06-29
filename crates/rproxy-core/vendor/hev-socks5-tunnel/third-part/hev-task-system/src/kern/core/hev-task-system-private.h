@@ -13,6 +13,11 @@
 #include <time.h>
 #include <setjmp.h>
 
+#if defined(_WIN32) || defined(_WIN64)
+#define _setjmp(env) setjmp (env)
+#define _longjmp(env, val) longjmp ((env), (val))
+#endif
+
 #include "hev-task-system.h"
 #include "kern/task/hev-task.h"
 #include "kern/task/hev-task-private.h"
